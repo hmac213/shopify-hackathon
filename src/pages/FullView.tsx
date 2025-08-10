@@ -6,24 +6,18 @@ import {BASE_PLY_URL} from '../config/viewer'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
 
 export function FullView() {
-  console.log('[FullView] Component mounting...')
-  
   // Ensure vendor script runs in single-file mode and uses the provided ?url=
   useEffect(() => {
-    console.log('[FullView] useEffect running...')
     try {
       const params = new URLSearchParams(window.location.search)
       const providedUrl = params.get('url') || ''
       const providedBase = params.get('base') || BASE_PLY_URL || ''
-
-      console.log('[FullView] URL params:', { providedUrl, providedBase })
 
       // Force single mode so multi-merge is disabled
       if (params.get('single') !== '1') {
         params.set('single', '1')
         const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`
         history.replaceState({}, '', next)
-        console.log('[FullView] Updated URL to:', next)
       }
 
       // Compute absolute URL if possible
@@ -34,23 +28,17 @@ export function FullView() {
           : new URL(providedUrl).toString()
       } catch {}
 
-      console.log('[FullView] Effective URL:', effectiveUrl)
-
       ;(window as unknown as { __SPLAT_SINGLE_URL?: string }).__SPLAT_SINGLE_URL = effectiveUrl
       if (providedBase) {
         ;(window as unknown as { __SPLAT_SINGLE_BASE?: string }).__SPLAT_SINGLE_BASE = providedBase
       }
       ;(window as unknown as { __FORCE_SINGLE?: boolean }).__FORCE_SINGLE = true
 
-      console.log('[FullView] Global variables set, loading splat-single.js...')
-
       // Load the viewer once the DOM elements exist
       import('../vendor/splat-single.js').catch((err) => {
         console.error('Failed to import splat viewer module (full view)', err)
       })
-    } catch (error) {
-      console.error('[FullView] Error in useEffect:', error)
-    }
+    } catch {}
 
     return () => {
       // Comprehensive cleanup when component unmounts
@@ -97,11 +85,6 @@ export function FullView() {
         {/* Back button */}
         <BackButton />
 
-        {/* Debug button */}
-        <DebugButton />
-
-
-
         <div id="spinner" className="absolute inset-0 z-20 grid place-items-center bg-black/40">
           <div className="w-8 h-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
         </div>
@@ -135,103 +118,6 @@ function BackButton() {
     >
       <CloseIcon />
     </Button>
-  )
-}
-
-function DebugButton() {
-  const [showDebug, setShowDebug] = useState(false)
-  
-  const debugInfo = {
-    url: new URLSearchParams(window.location.search).get('url') || 'N/A',
-    productId: new URLSearchParams(window.location.search).get('productId') || 'N/A',
-    canvas: document.getElementById('canvas') ? 'Found' : 'Not found',
-    webglContext: (() => {
-      const canvas = document.getElementById('canvas') as HTMLCanvasElement
-      if (!canvas) return 'No canvas'
-      const gl = canvas.getContext('webgl2')
-      if (!gl) return 'No WebGL context'
-      return gl.isContextLost() ? 'Context lost' : 'Active'
-    })(),
-    splatLoaded: (window as any).__splatSingleLoaded ? 'Yes' : 'No',
-    timestamp: new Date().toISOString()
-  }
-
-  return (
-    <>
-      <Button
-        size="sm"
-        variant="secondary"
-        onClick={() => setShowDebug(true)}
-        className="absolute top-3 left-3 z-[50]"
-      >
-        Debug
-      </Button>
-
-      {showDebug && (
-        <div className="absolute inset-0 z-[60] bg-black/80 text-white flex flex-col">
-          <div className="p-3 flex items-center justify-between gap-2 border-b border-white/10">
-            <div className="text-sm font-medium">FullView Debug Info</div>
-            <Button size="sm" onClick={() => setShowDebug(false)}>Close</Button>
-          </div>
-
-          <div className="flex-1 overflow-auto p-3 font-mono text-[12px] leading-relaxed">
-            <div className="space-y-2">
-              <div><strong>URL:</strong> {debugInfo.url}</div>
-              <div><strong>Product ID:</strong> {debugInfo.productId}</div>
-              <div><strong>Canvas:</strong> {debugInfo.canvas}</div>
-              <div><strong>WebGL Context:</strong> {debugInfo.webglContext}</div>
-              <div><strong>Splat Loaded:</strong> {debugInfo.splatLoaded}</div>
-              <div><strong>Timestamp:</strong> {debugInfo.timestamp}</div>
-            </div>
-            
-            <div className="mt-4 pt-4 border-t border-white/10">
-              <div className="text-sm font-medium mb-2">Actions:</div>
-              <div className="space-y-2">
-                <Button 
-                  size="sm" 
-                  variant="secondary" 
-                  onClick={() => {
-                    const canvas = document.getElementById('canvas') as HTMLCanvasElement
-                    if (canvas) {
-                      canvas.width = canvas.width
-                      console.log('Canvas reset')
-                    }
-                  }}
-                >
-                  Reset Canvas
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="secondary" 
-                  onClick={() => {
-                    if ((window as any).__splatSingleCleanup) {
-                      (window as any).__splatSingleCleanup()
-                      console.log('Manual cleanup triggered')
-                    }
-                  }}
-                >
-                  Manual Cleanup
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="secondary" 
-                  onClick={() => {
-                    console.log('Current window splat state:', {
-                      __splatSingleLoaded: (window as any).__splatSingleLoaded,
-                      __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
-                      __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
-                      __FORCE_SINGLE: (window as any).__FORCE_SINGLE
-                    })
-                  }}
-                >
-                  Log State
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
   )
 }
 

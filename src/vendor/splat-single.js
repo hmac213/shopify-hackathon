@@ -857,16 +857,6 @@ async function main() {
         throw new Error('[splat] #canvas not found')
     }
     
-    // Ensure any existing WebGL context is properly cleaned up first
-    const existingGl = canvas.getContext('webgl2');
-    if (existingGl && !existingGl.isContextLost()) {
-        console.log('[splat] Cleaning up existing WebGL context...');
-        const ext = existingGl.getExtension('WEBGL_lose_context');
-        if (ext) {
-            ext.loseContext();
-        }
-    }
-    
     // Create a completely fresh canvas element to ensure clean WebGL context
     const parent = canvas.parentElement;
     const newCanvas = document.createElement('canvas');
@@ -879,10 +869,6 @@ async function main() {
     canvas = newCanvas;
     
     console.log('[splat] Created fresh canvas element for WebGL context');
-    
-    // Small delay to ensure DOM is fully updated
-    await new Promise(resolve => setTimeout(resolve, 10));
-    
     const fps = document.getElementById("fps");
     const camid = document.getElementById("camid");
 

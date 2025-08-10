@@ -109,8 +109,6 @@ function useInAppConsole() {
 }
 
 export function Viewer() {
-  console.log('[Viewer] Component mounting...')
-  
   const {entries, clear, copy} = useInAppConsole()
   const [showDebug, setShowDebug] = useState(false)
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
@@ -313,12 +311,9 @@ export function Viewer() {
           sourceUrl={sourceUrl}
           onClose={() => { setSelectedPointId(null); setAnchor(null); setSourceUrl(null) }}
           onFullView={(productId) => {
-            console.log('[Viewer] Navigating to FullView with:', { productId, sourceUrl })
             setShowFullView(false)
             const params = new URLSearchParams({ url: sourceUrl || '' , productId: productId || '' })
-            const fullViewUrl = `/full?${params.toString()}`
-            console.log('[Viewer] FullView URL:', fullViewUrl)
-            navigate(fullViewUrl, { replace: false })
+            navigate(`/full?${params.toString()}`, { replace: false })
             setSelectedPointId(null)
             setAnchor(null)
           }}

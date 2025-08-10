@@ -852,15 +852,23 @@ async function main() {
         window.__splatWorker = worker;
     }
 
-    const canvas = document.getElementById("canvas");
+    let canvas = document.getElementById("canvas");
     if (!canvas) {
         throw new Error('[splat] #canvas not found')
     }
     
-    // Reset canvas to ensure clean state
-    canvas.width = canvas.width;
-    canvas.height = canvas.height;
+    // Create a completely fresh canvas element to ensure clean WebGL context
+    const parent = canvas.parentElement;
+    const newCanvas = document.createElement('canvas');
+    newCanvas.id = 'canvas';
+    newCanvas.className = canvas.className;
+    newCanvas.style.cssText = canvas.style.cssText;
     
+    // Replace the old canvas with the new one
+    parent.replaceChild(newCanvas, canvas);
+    canvas = newCanvas;
+    
+    console.log('[splat] Created fresh canvas element for WebGL context');
     const fps = document.getElementById("fps");
     const camid = document.getElementById("camid");
 
