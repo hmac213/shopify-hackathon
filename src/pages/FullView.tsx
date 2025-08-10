@@ -44,6 +44,19 @@ export function FullView() {
       // Comprehensive cleanup when component unmounts
       console.log('FullView: starting comprehensive cleanup')
       
+      // Debug: Log current global state before cleanup
+      console.log('FullView: Global state before cleanup:', {
+        __splatLoaded: (window as any).__splatLoaded,
+        __splatSingleLoaded: (window as any).__splatSingleLoaded,
+        __SPLAT_URL: (window as any).__SPLAT_URL,
+        __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: (window as any).__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+        __splatMainCleanup: !!(window as any).__splatMainCleanup,
+        __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
+      })
+      
       // Call the splat script's cleanup function if available
       if ((window as any).__splatSingleCleanup) {
         try {
@@ -64,6 +77,19 @@ export function FullView() {
       
       const message = document.getElementById('message')
       if (message) message.innerText = ''
+      
+      // Debug: Log global state after cleanup
+      console.log('FullView: Global state after cleanup:', {
+        __splatLoaded: (window as any).__splatLoaded,
+        __splatSingleLoaded: (window as any).__splatSingleLoaded,
+        __SPLAT_URL: (window as any).__SPLAT_URL,
+        __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: (window as any).__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+        __splatMainCleanup: !!(window as any).__splatMainCleanup,
+        __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
+      })
       
       console.log('FullView: cleanup completed')
     }

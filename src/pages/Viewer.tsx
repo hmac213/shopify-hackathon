@@ -139,6 +139,19 @@ export function Viewer() {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // Debug: Log global state before Viewer initialization
+    console.log('Viewer: Global state before initialization:', {
+      __splatLoaded: (window as any).__splatLoaded,
+      __splatSingleLoaded: (window as any).__splatSingleLoaded,
+      __SPLAT_URL: (window as any).__SPLAT_URL,
+      __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+      __SPLAT_BASE: (window as any).__SPLAT_BASE,
+      __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+      __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+      __splatMainCleanup: !!(window as any).__splatMainCleanup,
+      __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
+    })
+    
     // Ensure URL param is set so the vendored script picks it up
     try {
       // Build an absolute URL using base+path when provided
@@ -170,6 +183,19 @@ export function Viewer() {
       // Comprehensive cleanup when component unmounts
       console.log('Viewer: starting comprehensive cleanup')
       
+      // Debug: Log current global state before cleanup
+      console.log('Viewer: Global state before cleanup:', {
+        __splatLoaded: (window as any).__splatLoaded,
+        __splatSingleLoaded: (window as any).__splatSingleLoaded,
+        __SPLAT_URL: (window as any).__SPLAT_URL,
+        __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: (window as any).__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+        __splatMainCleanup: !!(window as any).__splatMainCleanup,
+        __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
+      })
+      
       // Call the splat script's cleanup function if available
       if ((window as any).__splatMainCleanup) {
         try {
@@ -199,6 +225,19 @@ export function Viewer() {
         } catch (e) {
           console.warn('Viewer: error removing tracker:', e)
         }
+      })
+      
+      // Debug: Log global state after cleanup
+      console.log('Viewer: Global state after cleanup:', {
+        __splatLoaded: (window as any).__splatLoaded,
+        __splatSingleLoaded: (window as any).__splatSingleLoaded,
+        __SPLAT_URL: (window as any).__SPLAT_URL,
+        __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: (window as any).__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+        __splatMainCleanup: !!(window as any).__splatMainCleanup,
+        __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
       })
       
       console.log('Viewer: cleanup completed')

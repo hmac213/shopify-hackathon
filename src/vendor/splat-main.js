@@ -747,8 +747,18 @@ async function main() {
     await new Promise(resolve => setTimeout(resolve, 200));
     
     // Additional check to ensure no conflicting globals exist
+    console.log('[splat-main] Checking for conflicting globals:', {
+        __splatLoaded: window.__splatLoaded,
+        __splatSingleLoaded: window.__splatSingleLoaded,
+        __SPLAT_URL: window.__SPLAT_URL,
+        __SPLAT_SINGLE_URL: window.__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: window.__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: window.__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: window.__FORCE_SINGLE,
+    });
+    
     if (window.__splatLoaded || window.__splatSingleLoaded) {
-        console.warn('[splat] Detected conflicting globals, waiting longer...');
+        console.warn('[splat-main] Detected conflicting globals, waiting longer...');
         await new Promise(resolve => setTimeout(resolve, 300));
     }
     
@@ -1868,8 +1878,14 @@ let cleanupFunction = null;
 
 // Guard against multiple executions during HMR; ensure DOM exists first
 if (typeof window !== 'undefined') {
+    console.log('[splat-main] Guard check:', {
+        __splatLoaded: window.__splatLoaded,
+        __splatSingleLoaded: window.__splatSingleLoaded,
+    });
+    
     window.__splatLoaded = window.__splatLoaded || false;
     if (!window.__splatLoaded) {
+        console.log('[splat-main] Starting initialization');
         window.__splatLoaded = true;
         const mainPromise = main().catch((err) => {
             const spinner = document.getElementById("spinner");
