@@ -146,48 +146,49 @@ export function FullView() {
   }, [])
 
   return (
-    <div className="min-h-dvh w-dvw bg-white">
-      <div className="relative h-[50vh] w-full mx-3 mt-3 rounded-2xl border border-black/10 shadow-md overflow-hidden">
-        <canvas id="canvas" className="absolute inset-0 w-full h-full" />
+    <div className="min-h-dvh w-full bg-white overflow-x-hidden flex flex-col">
+      <div className="px-4 pt-4">
+        <div className="relative w-full aspect-[1/1] rounded-2xl border border-black/10 shadow-md overflow-hidden mx-auto">
+          <canvas id="canvas" className="absolute inset-0 w-full h-full" />
 
-        {/* Minimal HUD required by vendor script */}
-        <div className="absolute left-0 right-0 top-0 z-30 p-2 flex items-center justify-between text-white text-xs">
-          <div id="camid" className="px-2 py-1 rounded bg-black/40" />
-          <div className="flex items-center gap-2">
-            <div id="fps" className="px-2 py-1 rounded bg-black/40" />
-            {cacheStatus && (
-              <div className="px-2 py-1 rounded bg-black/40 text-white text-xs flex items-center gap-1">
-                {cacheStatus === 'checking' && <span className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />}
-                {cacheStatus === 'cached' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
-                {cacheStatus === 'fetching' && <span className="w-2 h-2 bg-blue-400 rounded-full animate-spin" />}
-                {cacheStatus === 'loaded' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
-                {cacheStatus === 'checking' && 'Checking cache...'}
-                {cacheStatus === 'cached' && 'Using cache'}
-                {cacheStatus === 'fetching' && 'Downloading...'}
-                {cacheStatus === 'loaded' && 'Loaded'}
-              </div>
-            )}
+          {/* Minimal HUD required by vendor script */}
+          <div className="absolute left-0 right-0 top-0 z-30 p-2 flex items-center justify-between text-white text-xs">
+            <div id="camid" className="px-2 py-1 rounded bg-black/40" />
+            <div className="flex items-center gap-2">
+              <div id="fps" className="px-2 py-1 rounded bg-black/40" />
+              {cacheStatus && (
+                <div className="px-2 py-1 rounded bg-black/40 text-white text-xs flex items-center gap-1">
+                  {cacheStatus === 'checking' && <span className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />}
+                  {cacheStatus === 'cached' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
+                  {cacheStatus === 'fetching' && <span className="w-2 h-2 bg-blue-400 rounded-full animate-spin" />}
+                  {cacheStatus === 'loaded' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
+                  {cacheStatus === 'checking' && 'Checking cache...'}
+                  {cacheStatus === 'cached' && 'Using cache'}
+                  {cacheStatus === 'fetching' && 'Downloading...'}
+                  {cacheStatus === 'loaded' && 'Loaded'}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Back button */}
-        <BackButton />
+          {/* Back button */}
+          <BackButton />
 
-        <div id="spinner" className="absolute inset-0 z-20 grid place-items-center bg-black/40">
-          <div className="w-8 h-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-        </div>
+          <div id="spinner" className="absolute inset-0 z-20 grid place-items-center bg-black/40">
+            <div className="w-8 h-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+          </div>
 
-        <div className="absolute left-0 right-0 bottom-0 z-30 h-1 bg-white/10">
-          <div id="progress" className="h-full bg-white/60" style={{width: 0}} />
-        </div>
+          <div className="absolute left-0 right-0 bottom-0 z-30 h-1 bg-white/10">
+            <div id="progress" className="h-full bg-white/60" style={{width: 0}} />
+          </div>
 
-        <div id="message" className="absolute inset-x-0 bottom-4 z-30 mx-4 text-center text-rose-300 text-xs">
-          {!hasUrl ? 'Missing ?url= parameter' : ''}
+          <div id="message" className="absolute inset-x-0 bottom-4 z-30 mx-4 text-center text-rose-300 text-xs">
+            {!hasUrl ? 'Missing ?url= parameter' : ''}
+          </div>
         </div>
       </div>
 
-      {/* Bottom half product details */}
-      <div className="h-[50vh] w-full bg-white">
+      <div className="flex-1">
         <FullViewProductDetails />
       </div>
     </div>
@@ -256,12 +257,12 @@ function FullViewProductDetails() {
   }
 
   return (
-    <div className="h-full w-full overflow-auto p-4 space-y-3">
+    <div className="w-full p-4 space-y-3">
       <ProductCard product={product} variant="default" />
       {sourceUrl ? (
         <div className="text-[10px] text-neutral-500 break-all">{sourceUrl}</div>
       ) : null}
-      <div className="sticky bottom-0 left-0 right-0 bg-white pt-2 pb-[env(safe-area-inset-bottom)]">
+      <div className="sticky bottom-0 left-0 right-0 bg-white pt-2 [padding-bottom:calc(env(safe-area-inset-bottom)+1rem)] border-t border-black/5">
         <div className="flex items-center gap-3 mb-3">
           <span className="text-xs text-gray-600">Qty</span>
           <QuantitySelector quantity={quantity} onQuantityChange={setQuantity} maxQuantity={99} />

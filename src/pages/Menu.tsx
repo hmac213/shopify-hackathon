@@ -230,13 +230,13 @@ export function Menu() {
             className="text-[44px] leading-none font-extrabold italic tracking-tight text-pink-500 drop-shadow"
             style={{textShadow: '0 6px 14px rgba(244,114,182,0.35), 0 2px 0 rgba(255,255,255,0.6)'}}
           >
-            Mini Shop
+            SpinShop 3D:
           </h1>
           <h2
             className="mt-1 text-[44px] leading-none font-extrabold italic tracking-tight text-pink-500 drop-shadow"
             style={{textShadow: '0 6px 14px rgba(244,114,182,0.35), 0 2px 0 rgba(255,255,255,0.6)'}}
           >
-            Studio
+            See It, Buy It!
           </h2>
         </div>
 
