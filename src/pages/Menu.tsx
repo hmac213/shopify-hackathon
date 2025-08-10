@@ -2,6 +2,7 @@ import {useMemo, useState, type ChangeEvent, type KeyboardEvent, type CSSPropert
 import {Button, Input, Label} from '@shopify/shop-minis-react'
 import {useEffect, useRef} from 'react'
 import {useNavigate} from 'react-router'
+import {Trophy} from 'lucide-react'
 
 export function Menu() {
   const navigate = useNavigate()
@@ -64,7 +65,7 @@ export function Menu() {
   )
 
   
-
+  
   const onStart = () => {
     const selected = category.trim()
     if (!selected) return
@@ -218,6 +219,11 @@ export function Menu() {
 
   return (
     <div className="min-h-dvh w-dvw flex flex-col bg-gradient-to-b from-pink-100 via-rose-50 to-amber-50">
+      <div className="absolute top-4 right-4 z-10">
+        <Button variant="icon" size="lg" onClick={() => navigate('/leaderboard')} aria-label="Leaderboard">
+          <Trophy />
+        </Button>
+      </div>
       <div className="flex-1 px-5 pt-16 pb-8 flex flex-col items-center text-center">
         <div className="select-none">
           <h1
@@ -262,18 +268,6 @@ export function Menu() {
           </div>
         </div>
 
-        <div className="mt-5 w-full flex flex-wrap gap-2 justify-center">
-          {suggestions.map((s: string) => (
-            <button
-              key={s}
-              className="px-3 py-1.5 rounded-full bg-white/70 text-sm text-gray-700 shadow-sm active:scale-95"
-              onClick={() => setCategory(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
         <p className="mt-6 text-xs text-gray-600">No account required. Camera access only while capturing.</p>
       </div>
 
@@ -285,10 +279,10 @@ export function Menu() {
         <div className="fixed inset-0 z-50 bg-white/90 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="w-full max-w-sm text-center select-none">
             <div className="text-sm text-gray-600 mb-3">Picking a vibe…</div>
-            <div className="relative mx-auto w-full rounded-2xl border border-black/10 bg-white shadow-md p-6">
+            <div className="relative overflow-hidden rounded-2xl border border-black/10 bg-white shadow-md p-6">
               <div className="h-16 flex items-center justify-center [perspective:900px] overflow-visible">
                 <div className="text-2xl font-extrabold italic tracking-tight text-pink-500 drop-shadow transform-gpu will-change-transform" style={{
-                  textShadow: '0 6px 14px rgba(244,114,182,0.35), 0 2px 0 rgba(255,255,255,0.6)',
+                  textShadow: '0 6px 14px rgba(244,114,182,0.35), 0 2px 0 rgba(255,255,255,0.8)',
                   ...spinStyle,
                 }}>{spinText}</div>
               </div>
