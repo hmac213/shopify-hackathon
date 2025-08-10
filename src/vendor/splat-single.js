@@ -757,9 +757,28 @@ async function main() {
         __FORCE_SINGLE: window.__FORCE_SINGLE,
     });
     
-    if (window.__splatLoaded || window.__splatSingleLoaded) {
-        console.warn('[splat-single] Detected conflicting globals, waiting longer...');
-        await new Promise(resolve => setTimeout(resolve, 300));
+    // Check if we're already loaded - if so, we need to force cleanup first
+    if (window.__splatSingleLoaded) {
+        console.warn('[splat-single] Already loaded, forcing cleanup and restart...');
+        if (window.__splatSingleCleanup) {
+            try {
+                window.__splatSingleCleanup();
+                console.log('[splat-single] Forced cleanup completed');
+            } catch (e) {
+                console.warn('[splat-single] Error during forced cleanup:', e);
+            }
+        }
+        // Reset our flag to allow re-initialization
+        window.__splatSingleLoaded = false;
+        // Add a small delay to ensure cleanup is complete
+        await new Promise(resolve => setTimeout(resolve, 200));
+        console.log('[splat-single] Ready to re-initialize');
+    }
+    
+    // Wait a bit if the other system is still active
+    if (window.__splatLoaded) {
+        console.warn('[splat-single] Detected main splat system active, waiting longer...');
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
     
     let carousel = true;
@@ -772,7 +791,7 @@ async function main() {
     const override = (typeof window !== 'undefined' && window.__SPLAT_SINGLE_URL) ? window.__SPLAT_SINGLE_URL : null
     const baseFromQs = params.get('base')
     const urlStr = params.get("url") || "train.splat"
-    const baseStr = baseOverride || baseFromQs || "https://huggingface.co/cakewalk/splat-data/resolve/main/"
+    const baseStr = baseOverride || baseFromQs || "https://raw.githubusercontent.com/bobbykabob/shopify-hackathon-cdn/main/"
     const url = override ? new URL(override) : new URL(urlStr, baseStr);
 
     // Decide whether to use multi-splat merge only (no single-stream fetch)
@@ -889,14 +908,24 @@ async function main() {
     newCanvas.width = canvas.width || 800;
     newCanvas.height = canvas.height || 600;
     
+    // Force cleanup of any existing WebGL context before replacement
+    try {
+        const existingGl = canvas.getContext('webgl2');
+        if (existingGl) {
+            existingGl.getExtension('WEBGL_lose_context')?.loseContext();
+        }
+    } catch (e) {
+        console.warn('[splat-single] Error cleaning up existing WebGL context:', e);
+    }
+    
     // Replace the old canvas with the new one
     parent.replaceChild(newCanvas, canvas);
     canvas = newCanvas;
     
-    // Small delay to ensure DOM update is complete
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Longer delay to ensure WebGL context cleanup is complete
+    await new Promise(resolve => setTimeout(resolve, 100));
     
-    console.log('[splat] Created fresh canvas element for WebGL context');
+    console.log('[splat-single] Created fresh canvas element for WebGL context');
     const fps = document.getElementById("fps");
     const camid = document.getElementById("camid");
 
@@ -1819,46 +1848,53 @@ if (typeof window !== 'undefined') {
         cleanupFunction = () => {
             console.log('[splat-single] Starting comprehensive cleanup...');
             
-            // Stop animation frame immediately
-            if (window.__splatSingleAnimationId) {
-                cancelAnimationFrame(window.__splatSingleAnimationId);
-                delete window.__splatSingleAnimationId;
-                console.log('[splat-single] Stopped animation frame');
-            }
-            
-            // Terminate worker with proper cleanup
-            if (window.__splatSingleWorker) {
-                try {
-                    window.__splatSingleWorker.terminate();
-                    console.log('[splat-single] Terminated worker');
-                } catch (e) {
-                    console.warn('[splat-single] Error terminating worker:', e);
+            try {
+                // Stop animation frame immediately
+                if (window.__splatSingleAnimationId) {
+                    cancelAnimationFrame(window.__splatSingleAnimationId);
+                    delete window.__splatSingleAnimationId;
+                    console.log('[splat-single] Stopped animation frame');
                 }
-                delete window.__splatSingleWorker;
-            }
-            
-            // Clean up any remaining event listeners
-            const events = ['resize', 'keydown', 'keyup', 'blur', 'splat:reset_view', 'gamepadconnected', 'gamepaddisconnected', 'hashchange'];
-            events.forEach(event => {
-                try {
-                    window.removeEventListener(event, () => {});
-                } catch (e) {
-                    // Ignore errors for event cleanup
+                
+                // Terminate worker with proper cleanup
+                if (window.__splatSingleWorker) {
+                    try {
+                        window.__splatSingleWorker.terminate();
+                        console.log('[splat-single] Terminated worker');
+                    } catch (e) {
+                        console.warn('[splat-single] Error terminating worker:', e);
+                    }
+                    delete window.__splatSingleWorker;
                 }
-            });
-            
-            // Reset all global flags (including Viewer flags to prevent conflicts)
-            delete window.__splatSingleLoaded;
-            delete window.__splatLoaded; // Also clear Viewer's flag
-            delete window.__SPLAT_SINGLE_URL;
-            delete window.__SPLAT_SINGLE_BASE;
-            delete window.__SPLAT_URL; // Also clear Viewer's URL
-            delete window.__SPLAT_BASE; // Also clear Viewer's base
-            delete window.__FORCE_SINGLE;
-            delete window.__splatSingleCleanup;
-            delete window.__splatMainCleanup; // Also clear Viewer's cleanup function
-            
-            console.log('[splat-single] Cleanup completed');
+                
+                // Clean up any remaining event listeners
+                const events = ['resize', 'keydown', 'keyup', 'blur', 'splat:reset_view', 'gamepadconnected', 'gamepaddisconnected', 'hashchange'];
+                events.forEach(event => {
+                    try {
+                        window.removeEventListener(event, () => {});
+                    } catch (e) {
+                        // Ignore errors for event cleanup
+                    }
+                });
+                
+                // Reset all global flags (including Viewer flags to prevent conflicts)
+                window.__splatSingleLoaded = false;
+                window.__splatLoaded = false; // Also clear Viewer's flag
+                delete window.__SPLAT_SINGLE_URL;
+                delete window.__SPLAT_SINGLE_BASE;
+                delete window.__SPLAT_URL; // Also clear Viewer's URL
+                delete window.__SPLAT_BASE; // Also clear Viewer's base
+                delete window.__FORCE_SINGLE;
+                delete window.__splatSingleCleanup;
+                delete window.__splatMainCleanup; // Also clear Viewer's cleanup function
+                
+                console.log('[splat-single] Cleanup completed successfully');
+            } catch (e) {
+                console.error('[splat-single] Error during cleanup:', e);
+                // Still try to reset flags even if cleanup fails
+                window.__splatSingleLoaded = false;
+                window.__splatLoaded = false;
+            }
         };
         window.__splatSingleCleanup = cleanupFunction;
     }

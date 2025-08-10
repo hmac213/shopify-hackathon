@@ -20,18 +20,11 @@ export function FullView() {
         history.replaceState({}, '', next)
       }
 
-      // Compute absolute URL if possible
-      let effectiveUrl = providedUrl
-      try {
-        effectiveUrl = providedBase
-          ? new URL(providedUrl, providedBase).toString()
-          : new URL(providedUrl).toString()
-      } catch {}
-
-      ;(window as unknown as { __SPLAT_SINGLE_URL?: string }).__SPLAT_SINGLE_URL = effectiveUrl
-      if (providedBase) {
-        ;(window as unknown as { __SPLAT_SINGLE_BASE?: string }).__SPLAT_SINGLE_BASE = providedBase
-      }
+      // Set the base URL first (this is what the splat script uses)
+      ;(window as unknown as { __SPLAT_SINGLE_BASE?: string }).__SPLAT_SINGLE_BASE = providedBase || BASE_PLY_URL
+      
+      // Set the URL (can be relative or absolute)
+      ;(window as unknown as { __SPLAT_SINGLE_URL?: string }).__SPLAT_SINGLE_URL = providedUrl || 'chair_trellis.splat'
       ;(window as unknown as { __FORCE_SINGLE?: boolean }).__FORCE_SINGLE = true
 
       // Load the viewer once the DOM elements exist
