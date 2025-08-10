@@ -168,11 +168,16 @@ export function Viewer() {
 
     return () => {
       // Comprehensive cleanup when component unmounts
-      console.log('Viewer: cleaning up splat resources')
+      console.log('Viewer: starting comprehensive cleanup')
       
       // Call the splat script's cleanup function if available
       if ((window as any).__splatMainCleanup) {
-        (window as any).__splatMainCleanup()
+        try {
+          (window as any).__splatMainCleanup()
+          console.log('Viewer: splat cleanup completed')
+        } catch (e) {
+          console.warn('Viewer: error during splat cleanup:', e)
+        }
         delete (window as any).__splatMainCleanup
       }
       
@@ -185,6 +190,18 @@ export function Viewer() {
       
       const message = document.getElementById('message')
       if (message) message.innerText = ''
+      
+      // Additional cleanup of any remaining elements
+      const trackers = document.querySelectorAll('[data-id]')
+      trackers.forEach(el => {
+        try {
+          el.remove()
+        } catch (e) {
+          console.warn('Viewer: error removing tracker:', e)
+        }
+      })
+      
+      console.log('Viewer: cleanup completed')
     }
   }, [])
 

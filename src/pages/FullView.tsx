@@ -42,11 +42,16 @@ export function FullView() {
 
     return () => {
       // Comprehensive cleanup when component unmounts
-      console.log('FullView: cleaning up splat resources')
+      console.log('FullView: starting comprehensive cleanup')
       
       // Call the splat script's cleanup function if available
       if ((window as any).__splatSingleCleanup) {
-        (window as any).__splatSingleCleanup()
+        try {
+          (window as any).__splatSingleCleanup()
+          console.log('FullView: splat cleanup completed')
+        } catch (e) {
+          console.warn('FullView: error during splat cleanup:', e)
+        }
         delete (window as any).__splatSingleCleanup
       }
       
@@ -59,6 +64,8 @@ export function FullView() {
       
       const message = document.getElementById('message')
       if (message) message.innerText = ''
+      
+      console.log('FullView: cleanup completed')
     }
   }, [])
 

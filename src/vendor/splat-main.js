@@ -742,8 +742,15 @@ let viewMatrix = defaultViewMatrix;
 async function main() {
     console.log('[splat] main() start')
     
-    // Small delay to ensure previous cleanup is complete
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Longer delay to ensure previous cleanup is complete
+    console.log('[splat] Waiting for cleanup to complete...');
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Additional check to ensure no conflicting globals exist
+    if (window.__splatLoaded || window.__splatSingleLoaded) {
+        console.warn('[splat] Detected conflicting globals, waiting longer...');
+        await new Promise(resolve => setTimeout(resolve, 300));
+    }
     
     let carousel = true;
     const params = new URLSearchParams(location.search);
@@ -859,14 +866,25 @@ async function main() {
     
     // Create a completely fresh canvas element to ensure clean WebGL context
     const parent = canvas.parentElement;
+    if (!parent) {
+        throw new Error('[splat] Canvas has no parent element');
+    }
+    
     const newCanvas = document.createElement('canvas');
     newCanvas.id = 'canvas';
     newCanvas.className = canvas.className;
     newCanvas.style.cssText = canvas.style.cssText;
     
+    // Ensure the new canvas has proper dimensions
+    newCanvas.width = canvas.width || 800;
+    newCanvas.height = canvas.height || 600;
+    
     // Replace the old canvas with the new one
     parent.replaceChild(newCanvas, canvas);
     canvas = newCanvas;
+    
+    // Small delay to ensure DOM update is complete
+    await new Promise(resolve => setTimeout(resolve, 50));
     
     console.log('[splat] Created fresh canvas element for WebGL context');
     const fps = document.getElementById("fps");
@@ -1863,27 +1881,54 @@ if (typeof window !== 'undefined') {
         
         // Store cleanup function
         cleanupFunction = () => {
-            console.log('[splat-main] Cleaning up resources');
-            // Stop animation frame
+            console.log('[splat-main] Starting comprehensive cleanup...');
+            
+            // Stop animation frame immediately
             if (window.__splatAnimationId) {
                 cancelAnimationFrame(window.__splatAnimationId);
                 delete window.__splatAnimationId;
+                console.log('[splat-main] Stopped animation frame');
             }
-            // Terminate worker
+            
+            // Terminate worker with proper cleanup
             if (window.__splatWorker) {
-                window.__splatWorker.terminate();
+                try {
+                    window.__splatWorker.terminate();
+                    console.log('[splat-main] Terminated worker');
+                } catch (e) {
+                    console.warn('[splat-main] Error terminating worker:', e);
+                }
                 delete window.__splatWorker;
             }
-            // Remove tracker elements
+            
+            // Remove all tracker elements
             const trackers = document.querySelectorAll('[data-id]');
-            trackers.forEach(el => el.remove());
-            // Reset global flags
+            trackers.forEach(el => {
+                try {
+                    el.remove();
+                } catch (e) {
+                    console.warn('[splat-main] Error removing tracker:', e);
+                }
+            });
+            console.log('[splat-main] Removed', trackers.length, 'tracker elements');
+            
+            // Clean up any remaining event listeners
+            const events = ['resize', 'keydown', 'keyup', 'blur', 'splat:reset_view', 'gamepadconnected', 'gamepaddisconnected', 'hashchange'];
+            events.forEach(event => {
+                try {
+                    window.removeEventListener(event, () => {});
+                } catch (e) {
+                    // Ignore errors for event cleanup
+                }
+            });
+            
+            // Reset all global flags
             delete window.__splatLoaded;
             delete window.__SPLAT_URL;
             delete window.__SPLAT_BASE;
+            delete window.__splatMainCleanup;
             
-            // Note: WebGL context cleanup is handled by creating fresh canvas elements
-            // No need to manually lose context since we replace the canvas entirely
+            console.log('[splat-main] Cleanup completed');
         };
         window.__splatMainCleanup = cleanupFunction;
     }
