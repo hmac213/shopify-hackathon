@@ -812,38 +812,57 @@ async function main() {
     let reader;
     if (!useMulti) {
         console.log('[splat] fetch url', url.toString())
-        let req = null;
-        let usedCache = false;
-        try {
-            if (typeof caches !== 'undefined') {
-                const cache = await caches.open('splat-cache-v1');
-                const cached = await cache.match(url.toString());
-                if (cached) {
-                    req = cached;
-                    usedCache = true;
+        
+        // Check for cached data from React component first
+        if (window.__SPLAT_CACHED_DATA) {
+            console.log('[splat] Using cached data from React storage')
+            splatData = new Uint8Array(window.__SPLAT_CACHED_DATA)
+            delete window.__SPLAT_CACHED_DATA // Clean up
+        } else {
+            let req = null;
+            let usedCache = false;
+            try {
+                if (typeof caches !== 'undefined') {
+                    const cache = await caches.open('splat-cache-v1');
+                    const cached = await cache.match(url.toString());
+                    if (cached) {
+                        req = cached;
+                        usedCache = true;
+                    }
+                }
+            } catch {}
+            if (!req) {
+                req = await fetch(url, { mode: "cors", credentials: "omit" });
+                if (req && req.ok) {
+                    try {
+                        if (typeof caches !== 'undefined') {
+                            const cache = await caches.open('splat-cache-v1');
+                            await cache.put(url.toString(), req.clone());
+                        }
+                    } catch {}
                 }
             }
-        } catch {}
-        if (!req) {
-            req = await fetch(url, { mode: "cors", credentials: "omit" });
-            if (req && req.ok) {
-                try {
-                    if (typeof caches !== 'undefined') {
-                        const cache = await caches.open('splat-cache-v1');
-                        await cache.put(url.toString(), req.clone());
-                    }
-                } catch {}
+            if (!req || req.status != 200) throw new Error((req && req.status) + " Unable to load " + (req && req.url));
+            if (req.body && req.body.getReader && !usedCache) {
+                // Stream when network response provides a body stream; cached responses often don't
+                splatData = new Uint8Array(Number(req.headers.get("content-length")) || 0);
+                reader = req.body.getReader();
+            } else {
+                const ab = await req.arrayBuffer();
+                splatData = new Uint8Array(ab);
+                reader = null;
             }
-        }
-        if (!req || req.status != 200) throw new Error((req && req.status) + " Unable to load " + (req && req.url));
-        if (req.body && req.body.getReader && !usedCache) {
-            // Stream when network response provides a body stream; cached responses often don't
-            splatData = new Uint8Array(Number(req.headers.get("content-length")) || 0);
-            reader = req.body.getReader();
-        } else {
-            const ab = await req.arrayBuffer();
-            splatData = new Uint8Array(ab);
-            reader = null;
+            
+            // Store the fetched data in React storage for future use
+            try {
+                if (window.__SPLAT_STORE_CACHE && splatData.length > 0) {
+                    const cacheKey = `splat_${url.toString()}`
+                    await window.__SPLAT_STORE_CACHE(cacheKey, Array.from(splatData))
+                    console.log('[splat] Stored data in React cache')
+                }
+            } catch (error) {
+                console.warn('[splat] Failed to store in React cache:', error)
+            }
         }
     }
 

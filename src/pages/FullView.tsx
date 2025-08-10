@@ -1,11 +1,14 @@
 import {useEffect, useMemo, useState} from 'react'
 import {useLocation, useNavigate} from 'react-router'
-import {Button, ProductCard, useShopCartActions, QuantitySelector, useDeeplink} from '@shopify/shop-minis-react'
+import {Button, ProductCard, useShopCartActions, QuantitySelector, useDeeplink, useAsyncStorage} from '@shopify/shop-minis-react'
 import {X as CloseIcon} from 'lucide-react'
 import {BASE_PLY_URL} from '../config/viewer'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
 
 export function FullView() {
+  const {getItem, setItem} = useAsyncStorage()
+  const [cacheStatus, setCacheStatus] = useState<'checking' | 'cached' | 'fetching' | 'loaded' | null>(null)
+  
   // Ensure vendor script runs in single-file mode and uses the provided ?url=
   useEffect(() => {
     try {
@@ -27,10 +30,54 @@ export function FullView() {
       ;(window as unknown as { __SPLAT_SINGLE_URL?: string }).__SPLAT_SINGLE_URL = providedUrl || 'chair_trellis.splat'
       ;(window as unknown as { __FORCE_SINGLE?: boolean }).__FORCE_SINGLE = true
 
-      // Load the viewer once the DOM elements exist (cache-bust to force re-eval)
-      // Vite needs vite-ignore for variable dynamic imports
-      import(/* @vite-ignore */ '../vendor/splat-single.js?ts=' + Date.now()).catch((err) => {
-        console.error('Failed to import splat viewer module (full view)', err)
+      // Check cache first before loading splat data
+      const checkAndLoadSplatData = async () => {
+        setCacheStatus('checking')
+        try {
+          const effectiveUrl = providedBase ? new URL(providedUrl || 'chair_trellis.splat', providedBase).toString() : (providedUrl || 'chair_trellis.splat')
+          const cacheKey = `splat_${effectiveUrl}`
+          const cachedData = await getItem({key: cacheKey})
+          
+          if (cachedData) {
+            console.log('FullView: Found cached splat data, using cache')
+            setCacheStatus('cached')
+            // Parse cached data and store in a global variable for the splat script to access
+            try {
+              const parsedData = JSON.parse(cachedData)
+              ;(window as any).__SPLAT_CACHED_DATA = parsedData
+            } catch (error) {
+              console.warn('FullView: Failed to parse cached data:', error)
+              setCacheStatus('fetching')
+            }
+          } else {
+            console.log('FullView: No cached data found, will fetch from network')
+            setCacheStatus('fetching')
+          }
+        } catch (error) {
+          console.warn('FullView: Error checking cache:', error)
+          setCacheStatus('fetching')
+        }
+      }
+
+      // Check cache and then load the splat module
+      checkAndLoadSplatData().then(() => {
+        // Provide storage function to splat script
+        ;(window as any).__SPLAT_STORE_CACHE = async (key: string, data: number[]) => {
+          try {
+            await setItem({key, value: JSON.stringify(data)})
+            console.log('FullView: Successfully stored data in cache')
+            setCacheStatus('loaded')
+          } catch (error) {
+            console.warn('FullView: Failed to store in cache:', error)
+            setCacheStatus('loaded')
+          }
+        }
+        
+        // Load the viewer once the DOM elements exist (cache-bust to force re-eval)
+        // Vite needs vite-ignore for variable dynamic imports
+        import(/* @vite-ignore */ '../vendor/splat-single.js?ts=' + Date.now()).catch((err) => {
+          console.error('Failed to import splat viewer module (full view)', err)
+        })
       })
     } catch {}
 
@@ -106,7 +153,21 @@ export function FullView() {
         {/* Minimal HUD required by vendor script */}
         <div className="absolute left-0 right-0 top-0 z-30 p-2 flex items-center justify-between text-white text-xs">
           <div id="camid" className="px-2 py-1 rounded bg-black/40" />
-          <div id="fps" className="px-2 py-1 rounded bg-black/40" />
+          <div className="flex items-center gap-2">
+            <div id="fps" className="px-2 py-1 rounded bg-black/40" />
+            {cacheStatus && (
+              <div className="px-2 py-1 rounded bg-black/40 text-white text-xs flex items-center gap-1">
+                {cacheStatus === 'checking' && <span className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />}
+                {cacheStatus === 'cached' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
+                {cacheStatus === 'fetching' && <span className="w-2 h-2 bg-blue-400 rounded-full animate-spin" />}
+                {cacheStatus === 'loaded' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
+                {cacheStatus === 'checking' && 'Checking cache...'}
+                {cacheStatus === 'cached' && 'Using cache'}
+                {cacheStatus === 'fetching' && 'Downloading...'}
+                {cacheStatus === 'loaded' && 'Loaded'}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Back button */}

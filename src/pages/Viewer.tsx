@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {SPLAT_PLY_URL, BASE_PLY_URL} from '../config/viewer'
 
-import {Button, ProductCard, useShopCartActions, QuantitySelector, useDeeplink, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, useShare} from '@shopify/shop-minis-react'
+import {Button, ProductCard, useShopCartActions, QuantitySelector, useDeeplink, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, useShare, useAsyncStorage} from '@shopify/shop-minis-react'
 import {X as CloseIcon} from 'lucide-react'
 import {useLocation, useNavigate} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
@@ -124,6 +124,7 @@ export function Viewer() {
   const [postName, setPostName] = useState('')
   const [isPosting, setIsPosting] = useState(false)
   const [postError, setPostError] = useState<string | null>(null)
+  const [cacheStatus, setCacheStatus] = useState<'checking' | 'cached' | 'fetching' | 'loaded' | null>(null)
 
   const envInfo = useMemo(
     () => ({
@@ -137,6 +138,7 @@ export function Viewer() {
   )
 
   const hostRef = useRef<HTMLDivElement>(null)
+  const {getItem, setItem} = useAsyncStorage()
 
   useEffect(() => {
     // Debug: Log global state before Viewer initialization
@@ -172,14 +174,57 @@ export function Viewer() {
       ;(window as unknown as { __SPLAT_BASE?: string }).__SPLAT_BASE = BASE_PLY_URL
     } catch {}
 
-    // Dynamically import the vendored module once the DOM is ready
-    // Avoid running twice under HMR by setting a global flag
-    // Force re-evaluation of the vendored module on each mount to avoid stale singleton state
-    // Vite needs vite-ignore for variable dynamic imports
-    import(/* @vite-ignore */ '../vendor/splat-main.js?ts=' + Date.now())
-      .catch((err) => {
-        console.error('Failed to import splat viewer module', err)
-      })
+    // Check cache first before loading splat data
+    const checkAndLoadSplatData = async () => {
+      setCacheStatus('checking')
+      try {
+        const cacheKey = `splat_${SPLAT_PLY_URL}`
+        const cachedData = await getItem({key: cacheKey})
+        
+        if (cachedData) {
+          console.log('Viewer: Found cached splat data, using cache')
+          setCacheStatus('cached')
+          // Parse cached data and store in a global variable for the splat script to access
+          try {
+            const parsedData = JSON.parse(cachedData)
+            ;(window as any).__SPLAT_CACHED_DATA = parsedData
+          } catch (error) {
+            console.warn('Viewer: Failed to parse cached data:', error)
+            setCacheStatus('fetching')
+          }
+        } else {
+          console.log('Viewer: No cached data found, will fetch from network')
+          setCacheStatus('fetching')
+        }
+      } catch (error) {
+        console.warn('Viewer: Error checking cache:', error)
+        setCacheStatus('fetching')
+      }
+    }
+
+    // Check cache and then load the splat module
+    checkAndLoadSplatData().then(() => {
+      // Provide storage function to splat script
+      ;(window as any).__SPLAT_STORE_CACHE = async (key: string, data: number[]) => {
+        try {
+          await setItem({key, value: JSON.stringify(data)})
+          console.log('Viewer: Successfully stored data in cache')
+          setCacheStatus('loaded')
+        } catch (error) {
+          console.warn('Viewer: Failed to store in cache:', error)
+          setCacheStatus('loaded')
+        }
+      }
+      
+      // Dynamically import the vendored module once the DOM is ready
+      // Avoid running twice under HMR by setting a global flag
+      // Force re-evaluation of the vendored module on each mount to avoid stale singleton state
+      // Vite needs vite-ignore for variable dynamic imports
+      import(/* @vite-ignore */ '../vendor/splat-main.js?ts=' + Date.now())
+        .catch((err) => {
+          console.error('Failed to import splat viewer module', err)
+        })
+    })
 
     return () => {
       // Comprehensive cleanup when component unmounts
@@ -335,8 +380,20 @@ export function Viewer() {
       </div>
       <div id="message" className="absolute inset-x-0 bottom-4 z-30 mx-4 text-center text-rose-300 text-xs" />
 
-      <div className="absolute top-4 left-4 z-40">
+      <div className="absolute top-4 left-4 z-40 flex gap-2">
         <Button variant="secondary" size="sm" onClick={() => setShowDebug(true)}>Debug</Button>
+        {cacheStatus && (
+          <div className="px-2 py-1 rounded bg-black/40 text-white text-xs flex items-center gap-1">
+            {cacheStatus === 'checking' && <span className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />}
+            {cacheStatus === 'cached' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
+            {cacheStatus === 'fetching' && <span className="w-2 h-2 bg-blue-400 rounded-full animate-spin" />}
+            {cacheStatus === 'loaded' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
+            {cacheStatus === 'checking' && 'Checking cache...'}
+            {cacheStatus === 'cached' && 'Using cache'}
+            {cacheStatus === 'fetching' && 'Downloading...'}
+            {cacheStatus === 'loaded' && 'Loaded'}
+          </div>
+        )}
       </div>
 
       <div className="absolute inset-x-4 bottom-4 z-40">
