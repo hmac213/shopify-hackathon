@@ -1,5 +1,8 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
-import {Button} from '@shopify/shop-minis-react'
+import {Button, ProductCard, useProductMedia, useShopCartActions, QuantitySelector, useShare, useDeeplink} from '@shopify/shop-minis-react'
+import {X as CloseIcon} from 'lucide-react'
+import {useLocation} from 'react-router'
+import {useCategoryProducts} from '../hooks/useCategoryProducts'
 import {SPLAT_PLY_URL} from '../config/viewer'
 
 type LogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
@@ -107,6 +110,13 @@ function useInAppConsole() {
 export function Viewer() {
   const {entries, clear, copy} = useInAppConsole()
   const [showDebug, setShowDebug] = useState(false)
+  const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
+  const [anchor, setAnchor] = useState<{x: number; y: number} | null>(null)
+  const [activeProductId, setActiveProductId] = useState<string | null>(null)
+  const [showFullView, setShowFullView] = useState(false)
+  const routeLocation = useLocation() as {state?: {category?: string; surprise?: boolean; productIds?: string[]}}
+  const {queryParams} = useDeeplink()
+  const viewerPool = useCategoryProductsForViewer()
 
   const envInfo = useMemo(
     () => ({
@@ -125,7 +135,8 @@ export function Viewer() {
     // Ensure URL param is set so the vendored script picks it up
     try {
       const params = new URLSearchParams(window.location.search)
-      if (SPLAT_PLY_URL) params.set('url', SPLAT_PLY_URL)
+      // Only set the scene URL if not already provided via deeplink/share
+      if (!params.get('url') && SPLAT_PLY_URL) params.set('url', SPLAT_PLY_URL)
       const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`
       console.info('Viewer: setting url param for splat', {SPLAT_PLY_URL, next})
       history.replaceState({}, '', next)
@@ -146,6 +157,80 @@ export function Viewer() {
     }
   }, [])
 
+  // Share current creation (scene + selection)
+  const {share} = useShare()
+  const onShare = async () => {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const sceneUrl = params.get('url') || SPLAT_PLY_URL || ''
+      const productIds = firstFourProductIds(viewerPool)
+      const category = (queryParams?.category as string | undefined) || routeLocation?.state?.category || ''
+      const surprise = (queryParams?.surprise === 'true') || !!routeLocation?.state?.surprise
+      const origin = window.location.origin
+      const query = new URLSearchParams({
+        url: sceneUrl,
+        category,
+        surprise: String(!!surprise),
+        productIds: productIds.join(','),
+      })
+      const url = `${origin}/viewer?${query.toString()}`
+      await share({ url, title: 'Check out my Mini Shop scene' })
+    } catch (e) {
+      try {
+        if (navigator.share) {
+          const params = new URLSearchParams(window.location.search)
+          const sceneUrl = params.get('url') || SPLAT_PLY_URL || ''
+          const productIds = firstFourProductIds(viewerPool)
+          const category = (queryParams?.category as string | undefined) || routeLocation?.state?.category || ''
+          const surprise = (queryParams?.surprise === 'true') || !!routeLocation?.state?.surprise
+          const origin = window.location.origin
+          const query = new URLSearchParams({ url: sceneUrl, category, surprise: String(!!surprise), productIds: productIds.join(',') })
+          const url = `${origin}/viewer?${query.toString()}`
+          await navigator.share({ url, title: 'Check out my Mini Shop scene' })
+        } else {
+          await navigator.clipboard.writeText(window.location.href)
+        }
+      } catch {}
+    }
+  }
+
+  // Track point click and live screen positions for anchoring
+  useEffect(() => {
+    const onClick = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {id?: string; x?: number; y?: number} | undefined
+      if (!detail) return
+      setSelectedPointId(detail.id ?? null)
+      if (typeof detail.x === 'number' && typeof detail.y === 'number') {
+        setAnchor({x: detail.x, y: detail.y})
+      }
+    }
+    const onPositions = (e: Event) => {
+      if (!anchor) return
+      const detail = (e as CustomEvent).detail as { positions: Record<string, {x?: number; y?: number; visible?: boolean}> }
+      // follow nearest visible point to current anchor
+      let bestId: string | null = null
+      let bestDist = Infinity
+      for (const [id, p] of Object.entries(detail.positions || {})) {
+        if (p?.visible && typeof p.x === 'number' && typeof p.y === 'number') {
+          const dx = p.x - anchor.x
+          const dy = p.y - anchor.y
+          const d = dx*dx + dy*dy
+          if (d < bestDist) { bestDist = d; bestId = id }
+        }
+      }
+      if (bestId) {
+        const p = detail.positions[bestId]!
+        setAnchor({x: p.x!, y: p.y!})
+      }
+    }
+    window.addEventListener('splat:tracker_click', onClick as EventListener)
+    window.addEventListener('splat:points_screen', onPositions as EventListener)
+    return () => {
+      window.removeEventListener('splat:tracker_click', onClick as EventListener)
+      window.removeEventListener('splat:points_screen', onPositions as EventListener)
+    }
+  }, [anchor])
+
   return (
     <div ref={hostRef} className="min-h-dvh w-dvw relative bg-black">
       <canvas id="canvas" className="absolute inset-0 w-full h-full" />
@@ -161,14 +246,29 @@ export function Viewer() {
       </div>
       <div id="message" className="absolute inset-x-0 bottom-4 z-30 mx-4 text-center text-rose-300 text-xs" />
 
-      <div className="absolute bottom-4 right-4 z-40">
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('splat:reset_view'))}>Center</Button>
-          <Button size="sm" onClick={() => setShowDebug(true)}>Debug</Button>
+      <div className="absolute top-4 left-4 z-40">
+        <Button variant="secondary" size="sm" onClick={() => setShowDebug(true)}>Debug</Button>
+      </div>
+
+      <div className="absolute inset-x-4 bottom-4 z-40">
+        <div className="grid grid-cols-2 gap-3">
+          <Button size="lg" className="w-full" onClick={onShare}>Share</Button>
+          <Button size="lg" variant="secondary" className="w-full" onClick={() => window.dispatchEvent(new CustomEvent('splat:reset_view'))}>Center</Button>
         </div>
       </div>
 
-      <ProductPanel />
+      {!showFullView && (
+        <AnchoredProductCard
+          anchor={anchor}
+          selectedPointId={selectedPointId}
+          onClose={() => { setSelectedPointId(null); setAnchor(null); setActiveProductId(null) }}
+          onFullView={(productId) => { setActiveProductId(productId); setShowFullView(true); setSelectedPointId(null); setAnchor(null) }}
+        />
+      )}
+
+      {showFullView && activeProductId ? (
+        <FullProductView productId={activeProductId} onClose={() => setShowFullView(false)} />
+      ) : null}
 
       {showDebug && (
         <div className="absolute inset-0 z-50 bg-black/80 text-white flex flex-col">
@@ -218,106 +318,165 @@ export function Viewer() {
   )
 }
 
-function ProductPanel() {
-  const [open, setOpen] = useState(false)
-  const [anchor, setAnchor] = useState<{x: number; y: number} | null>(null)
-  useEffect(() => {
-    const onClick = (e: Event) => {
-      const detail = (e as CustomEvent).detail as {x?: number; y?: number} | undefined
-      if (detail?.x != null && detail?.y != null) setAnchor({x: detail.x, y: detail.y})
-      setOpen(true)
-    }
-    window.addEventListener('splat:tracker_click', onClick as EventListener)
-    return () => window.removeEventListener('splat:tracker_click', onClick as EventListener)
-  }, [])
+interface AnchoredProductCardProps {
+  anchor: {x: number; y: number} | null
+  selectedPointId: string | null
+  onClose: () => void
+  onFullView: (productId: string) => void
+}
 
-  // Subscribe to live screen positions of points to keep the panel stuck to the target
-  useEffect(() => {
-    const onPositions = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { positions: Record<string, {x?: number; y?: number; visible?: boolean}> }
-      if (!open || !anchor) return
-      // find nearest point by distance to current anchor and follow it
-      let bestId: string | null = null
-      let bestDist = Infinity
-      for (const [id, p] of Object.entries(detail.positions || {})) {
-        if (p?.visible && typeof p.x === 'number' && typeof p.y === 'number') {
-          const dx = (p.x - anchor.x)
-          const dy = (p.y - anchor.y)
-          const d = dx*dx + dy*dy
-          if (d < bestDist) { bestDist = d; bestId = id }
-        }
-      }
-      if (bestId) {
-        const p = detail.positions[bestId]!
-        setAnchor({ x: p.x!, y: p.y! })
-      }
-    }
-    window.addEventListener('splat:points_screen', onPositions as EventListener)
-    return () => window.removeEventListener('splat:points_screen', onPositions as EventListener)
-  }, [open, anchor])
+function AnchoredProductCard({anchor, selectedPointId, onClose, onFullView}: AnchoredProductCardProps) {
+  // Map first four products to four points
+  const pool = useCategoryProductsForViewer()
+  const mapped = useMemo(() => mapProductsToPoints(pool), [pool])
 
-  if (!open) return null
-  const close = () => setOpen(false)
+  const product = selectedPointId ? mapped[selectedPointId] ?? null : null
+  if (!product || !anchor) return null
 
-  const product = {
-    title: 'Sample Sneaker',
-    price: '$129.00',
-    vendor: 'Acme Co.',
-    image:
-      'https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=800&auto=format&fit=crop',
-  }
-
-  // Position near anchor if provided; otherwise default to bottom sheet
-  if (anchor) {
-    const style: React.CSSProperties = {
-      position: 'absolute',
-      left: Math.min(Math.max(anchor.x, 12), window.innerWidth - 12) + 'px',
-      top: Math.min(Math.max(anchor.y - 8, 12), window.innerHeight - 12) + 'px',
-      transform: 'translate(-50%, -100%)',
-      zIndex: 60,
-    }
-    return (
-      <div style={style} className="min-w-[240px] max-w-[80vw] rounded-xl shadow-2xl bg-white p-4 space-y-3 border border-black/5">
-        <div className="flex items-center justify-between">
-          <div className="text-base font-semibold">Product</div>
-          <Button size="sm" onClick={() => setOpen(false)}>Close</Button>
-        </div>
-        <div className="flex gap-3 items-center">
-          <img src={product.image} alt="" className="w-14 h-14 rounded-md object-cover" />
-          <div className="flex-1">
-            <div className="text-sm font-medium">{product.title}</div>
-            <div className="text-[11px] text-neutral-500">{product.vendor}</div>
-          </div>
-          <div className="text-sm font-semibold">{product.price}</div>
-        </div>
-        <div className="flex gap-2">
-          <Button className="flex-1">Add</Button>
-          <Button variant="secondary" className="flex-1" onClick={() => setOpen(false)}>Dismiss</Button>
-        </div>
-      </div>
-    )
-  }
+  const left = Math.min(Math.max(anchor.x, 12), window.innerWidth - 12)
+  const top = Math.min(Math.max(anchor.y - 8, 12), window.innerHeight - 12)
+  const style: React.CSSProperties = {position: 'absolute', left, top, transform: 'translate(-50%, -100%)', zIndex: 60}
 
   return (
-    <div className="absolute inset-0 z-50 bg-black/60 flex items-end">
-      <div className="w-full rounded-t-2xl bg-white p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-base font-semibold">Product</div>
-          <Button size="sm" onClick={close}>Close</Button>
-        </div>
-        <div className="flex gap-3 items-center">
-          <img src={product.image} alt="" className="w-16 h-16 rounded-md object-cover" />
-          <div className="flex-1">
-            <div className="text-sm font-medium">{product.title}</div>
-            <div className="text-xs text-neutral-500">{product.vendor}</div>
-          </div>
-          <div className="text-sm font-semibold">{product.price}</div>
-        </div>
-        <div className="flex gap-2">
-          <Button className="flex-1">Add to cart</Button>
-          <Button variant="secondary" className="flex-1" onClick={close}>Dismiss</Button>
-        </div>
+    <div style={style} className="min-w-[240px] max-w-[84vw]">
+      <SdkProductCard product={product} onClose={onClose} onFullView={() => onFullView(product.id)} />
+    </div>
+  )
+}
+
+function SdkProductCard({product, onClose, onFullView}: {product: any; onClose: () => void; onFullView: () => void}) {
+  return (
+    <div className="rounded-xl shadow-2xl bg-white border border-black/5 p-3">
+      <ProductCard product={product} variant="default" />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Button className="w-full" onClick={onFullView}>Full View</Button>
+        <Button variant="secondary" className="w-full" onClick={onClose}>Dismiss</Button>
       </div>
     </div>
   )
+}
+
+function FullProductView({productId, onClose}: {productId: string; onClose: () => void}) {
+  const {media} = useProductMedia({ id: productId, first: 10 }) as {media: any[] | null}
+  const model = useMemo(() => (media || []).find((m: any) => m.mediaContentType === 'MODEL_3D' || m.contentType === 'MODEL_3D') ?? null, [media])
+  const modelUrl: string | null = model?.sources?.[0]?.url || model?.url || null
+
+  return (
+    <div className="absolute inset-0 z-[70] bg-white flex flex-col">
+      <div className="relative h-[68vh] bg-gray-100">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/20 to-transparent" />
+        <Button
+           size="lg"
+           variant="icon"
+           onClick={onClose}
+           aria-label="Close"
+           className="absolute top-3 right-3 z-[50] size-12 pointer-events-auto"
+         >
+           <CloseIcon />
+         </Button>
+        {modelUrl ? (
+          <model-viewer src={modelUrl} ar ar-modes="webxr scene-viewer quick-look" camera-controls style={{width: '100%', height: '100%', background: 'transparent'}}></model-viewer>
+        ) : (
+          <div className="absolute inset-0 grid place-items-center text-gray-500 text-sm">No 3D model available</div>
+        )}
+      </div>
+      <ViewerProductDetails productId={productId} />
+    </div>
+  )
+}
+
+function ViewerProductDetails({productId}: {productId: string}) {
+  // Reuse category pool to locate product details without another fetch
+  const pool = useCategoryProductsForViewer()
+  const product = pool.find((p: any) => p.id === productId)
+  const {addToCart, buyProduct} = useShopCartActions()
+  const [quantity, setQuantity] = useState<number>(1)
+
+  const onAddToCart = async () => {
+    if (!product) return
+    const variantId = (product as any).selectedVariant?.id || (product as any).defaultVariantId
+    const shopId = (product as any).shop?.id
+    if (!variantId || !shopId) return
+    await addToCart({ productId, productVariantId: variantId, quantity })
+  }
+  const onBuyNow = async () => {
+    if (!product) return
+    const variantId = (product as any).selectedVariant?.id || (product as any).defaultVariantId
+    const shopId = (product as any).shop?.id
+    if (!variantId || !shopId) return
+    await buyProduct({ productId, productVariantId: variantId, quantity })
+  }
+  return (
+    <div className="flex-1 p-4 space-y-2 border-t border-black/10 overflow-auto">
+      {product ? (
+        <>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-base font-semibold truncate">{product.title}</div>
+              {(product as any).shop?.name ? (
+                <div className="text-xs text-gray-500 truncate mt-0.5">{(product as any).shop.name}</div>
+              ) : null}
+            </div>
+            <div className="text-base font-semibold whitespace-nowrap">
+              {product.price?.amount ? `${product.price.amount} ${product.price.currencyCode}` : ''}
+            </div>
+          </div>
+
+          <div className="text-sm text-gray-700">
+            {(product as any).description ? (
+              <div className="line-clamp-6">{(product as any).description}</div>
+            ) : (product as any).descriptionHtml ? (
+              <div className="prose prose-sm max-w-none line-clamp-6" dangerouslySetInnerHTML={{__html: (product as any).descriptionHtml}} />
+            ) : null}
+          </div>
+
+          <div className="sticky bottom-0 left-0 right-0 bg-white pt-2 pb-4 pb-[env(safe-area-inset-bottom)]">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-xs text-gray-600">Qty</span>
+              <QuantitySelector quantity={quantity} onQuantityChange={setQuantity} maxQuantity={99} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Button size="lg" variant="secondary" className="w-full py-4" onClick={onAddToCart}>Add to Cart</Button>
+              <Button size="lg" className="w-full py-4" onClick={onBuyNow}>Buy Now</Button>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+// Select 4 products for the viewer based on category from navigation state (passed via Loading)
+function useCategoryProductsForViewer() {
+  const location = useLocation() as {state?: {category?: string; surprise?: boolean; productIds?: string[]}}
+  const {queryParams} = useDeeplink()
+  const sharedCategory = (queryParams?.category as string | undefined) || undefined
+  const sharedSurprise = queryParams?.surprise === 'true'
+  const sharedIds = typeof queryParams?.productIds === 'string' && (queryParams?.productIds as string).length > 0
+    ? (queryParams?.productIds as string).split(',')
+    : undefined
+  const category = sharedCategory ?? location?.state?.category
+  const surprise = sharedCategory != null ? false : (sharedSurprise || !!location?.state?.surprise)
+  const explicitIds = sharedIds ?? location?.state?.productIds
+  // If upstream passed exact ids, prefer those
+  const {products} = useCategoryProducts({category, surprise, first: 16})
+  const final = useMemo(() => {
+    if (explicitIds && explicitIds.length > 0) return products.filter(p => explicitIds.includes(p.id))
+    return products
+  }, [products, explicitIds])
+  return final
+}
+
+function mapProductsToPoints(products: any[]): Record<string, any> {
+  const pointIds = ['p1','p2','p3','p4']
+  const mapped: Record<string, any> = {}
+  for (let i = 0; i < pointIds.length; i++) {
+    const p = products[i]
+    if (p) mapped[pointIds[i]] = p
+  }
+  return mapped
+}
+
+function firstFourProductIds(products: any[]): string[] {
+  return (products || []).slice(0, 4).map((p: any) => p.id)
 }

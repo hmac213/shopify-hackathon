@@ -827,8 +827,9 @@ async function main() {
         const el = document.createElement('div')
         el.dataset.id = id
         Object.assign(el.style, {
-            position: 'absolute', width: '22px', height: '22px', borderRadius: '9999px',
-            border: '2px solid rgba(255,255,255,0.9)', background: 'rgba(255,255,255,0.12)',
+            position: 'absolute', width: '26px', height: '26px', borderRadius: '9999px',
+            border: '2px solid rgba(124,58,237,0.95)', background: 'rgba(124,58,237,0.18)',
+            boxShadow: '0 0 0 3px rgba(124,58,237,0.22), 0 0 14px rgba(124,58,237,0.35)',
             left: '0px', top: '0px', transform: 'translate(-50%, -50%)', zIndex: 25, cursor: 'pointer', display: 'none'
         })
         el.addEventListener('click', () => {
