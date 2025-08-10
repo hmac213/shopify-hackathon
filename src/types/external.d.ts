@@ -25,4 +25,11 @@ declare module '@mkkellogg/gaussian-splats-3d' {
     update(): void
     render(): void
   }
+}
+
+// Allow custom element <model-viewer>
+declare namespace JSX {
+  interface IntrinsicElements {
+    'model-viewer': any
+  }
 } 
