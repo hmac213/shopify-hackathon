@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {SPLAT_PLY_URL, BASE_PLY_URL} from '../config/viewer'
-import {Button, ProductCard, useShopCartActions, QuantitySelector, useShare, useDeeplink} from '@shopify/shop-minis-react'
-import {X as CloseIcon} from 'lucide-react'
+import {Button, ProductCard, useShare, useDeeplink} from '@shopify/shop-minis-react'
+// import {X as CloseIcon} from 'lucide-react'
 import {useLocation, useNavigate} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
 
@@ -113,7 +113,7 @@ export function Viewer() {
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
   const [anchor, setAnchor] = useState<{x: number; y: number} | null>(null)
   const [sourceUrl, setSourceUrl] = useState<string | null>(null)
-  const [activeProductId, setActiveProductId] = useState<string | null>(null)
+  // const [activeProductId, setActiveProductId] = useState<string | null>(null)
   const [showFullView, setShowFullView] = useState(false)
   const routeLocation = useLocation() as {state?: {category?: string; surprise?: boolean; productIds?: string[]}}
   const navigate = useNavigate()
@@ -278,11 +278,10 @@ export function Viewer() {
           anchor={anchor}
           selectedPointId={selectedPointId}
           sourceUrl={sourceUrl}
-          onClose={() => { setSelectedPointId(null); setAnchor(null); setActiveProductId(null); setSourceUrl(null) }}
+          onClose={() => { setSelectedPointId(null); setAnchor(null); setSourceUrl(null) }}
           onFullView={(productId) => {
-            setActiveProductId(productId)
             setShowFullView(false)
-            const params = new URLSearchParams({ url: sourceUrl || '' })
+            const params = new URLSearchParams({ url: sourceUrl || '' , productId: productId || '' })
             navigate(`/full?${params.toString()}`, { replace: false })
             setSelectedPointId(null)
             setAnchor(null)
@@ -382,101 +381,9 @@ function SdkProductCard({product, sourceUrl, onClose, onFullView}: {product: any
   )
 }
 
-function FullProductView({productId, sourceUrl, onClose}: {productId: string; sourceUrl: string | null; onClose: () => void}) {
+// FullProductView moved to a dedicated page: see FullView.tsx
 
-  function InlineSplatCanvas({sourceUrl}: {sourceUrl: string | null}) {
-    const ref = useRef<HTMLCanvasElement | null>(null)
-    useEffect(() => {
-      let renderer: {dispose: () => void} | null = null
-      if (ref.current && sourceUrl) {
-        createSingleSplatRenderer(ref.current, sourceUrl).then(r => { renderer = r }).catch(() => {})
-      }
-      return () => { try { renderer?.dispose() } catch {} }
-    }, [sourceUrl])
-    if (!sourceUrl) return <div className="absolute inset-0 grid place-items-center text-gray-500 text-sm">No 3D model available</div>
-    return <canvas ref={ref} className="absolute inset-0 w-full h-full" />
-  }
-
-  return (
-    <div className="absolute inset-0 z-[70] bg-white flex flex-col">
-      <div className="relative h-[68vh] bg-gray-100">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/20 to-transparent" />
-        <Button
-           size="lg"
-           variant="icon"
-           onClick={onClose}
-           aria-label="Close"
-           className="absolute top-3 right-3 z-[50] size-12 pointer-events-auto"
-         >
-           <CloseIcon />
-         </Button>
-        <InlineSplatCanvas sourceUrl={sourceUrl} />
-      </div>
-      <ViewerProductDetails productId={productId} sourceUrl={sourceUrl} />
-    </div>
-  )
-}
-
-function ViewerProductDetails({productId, sourceUrl}: {productId: string; sourceUrl: string | null}) {
-  // Reuse category pool to locate product details without another fetch
-  const pool = useCategoryProductsForViewer()
-  const product = pool.find((p: any) => p.id === productId)
-  const {addToCart, buyProduct} = useShopCartActions()
-  const [quantity, setQuantity] = useState<number>(1)
-
-  const onAddToCart = async () => {
-    if (!product) return
-    const variantId = (product as any).selectedVariant?.id || (product as any).defaultVariantId
-    const shopId = (product as any).shop?.id
-    if (!variantId || !shopId) return
-    await addToCart({ productId, productVariantId: variantId, quantity })
-  }
-  const onBuyNow = async () => {
-    if (!product) return
-    const variantId = (product as any).selectedVariant?.id || (product as any).defaultVariantId
-    const shopId = (product as any).shop?.id
-    if (!variantId || !shopId) return
-    await buyProduct({ productId, productVariantId: variantId, quantity })
-  }
-  return (
-    <div className="flex-1 p-4 space-y-2 border-t border-black/10 overflow-auto">
-      {product ? (
-        <>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-base font-semibold truncate">{sourceUrl || product.title}</div>
-              {(product as any).shop?.name ? (
-                <div className="text-xs text-gray-500 truncate mt-0.5">{(product as any).shop.name}</div>
-              ) : null}
-            </div>
-            <div className="text-base font-semibold whitespace-nowrap">
-              {product.price?.amount ? `${product.price.amount} ${product.price.currencyCode}` : ''}
-            </div>
-          </div>
-
-          <div className="text-sm text-gray-700">
-            {(product as any).description ? (
-              <div className="line-clamp-6">{(product as any).description}</div>
-            ) : (product as any).descriptionHtml ? (
-              <div className="prose prose-sm max-w-none line-clamp-6" dangerouslySetInnerHTML={{__html: (product as any).descriptionHtml}} />
-            ) : null}
-          </div>
-
-          <div className="sticky bottom-0 left-0 right-0 bg-white pt-2 pb-4 pb-[env(safe-area-inset-bottom)]">
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-xs text-gray-600">Qty</span>
-              <QuantitySelector quantity={quantity} onQuantityChange={setQuantity} maxQuantity={99} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Button size="lg" variant="secondary" className="w-full py-4" onClick={onAddToCart}>Add to Cart</Button>
-              <Button size="lg" className="w-full py-4" onClick={onBuyNow}>Buy Now</Button>
-            </div>
-          </div>
-        </>
-      ) : null}
-    </div>
-  )
-}
+// Viewer details UI moved to FullView
 
 // Select 4 products for the viewer based on category from navigation state (passed via Loading)
 function useCategoryProductsForViewer() {
