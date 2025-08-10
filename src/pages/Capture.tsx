@@ -1,8 +1,8 @@
 import {useLocation, useNavigate} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
-import {useVideoCapture} from '../hooks/useVideoCapture'
+// import {useVideoCapture} from '../hooks/useVideoCapture'
 import {Button} from '@shopify/shop-minis-react'
-import {useEffect, useMemo, useRef} from 'react'
+import {useEffect, useMemo, useRef, useState} from 'react'
 import {onCapture, cancelCurrent} from '../capture'
 
 export function Capture() {
@@ -16,29 +16,41 @@ export function Capture() {
   // Collect the first two captured frames as Files to submit
   const capturedFilesRef = useRef<File[]>([])
 
-  const {videoRef, isPreviewing, isCapturing, error, openPreview, close, startCapture, stopCapture, fps, setFps} = useVideoCapture({
-    fps: 5,
-    mimeType: 'image/webp',
-    quality: 0.7,
-    facingMode: 'environment',
-    width: 720,
-    height: 720,
-    onFrame: frame => {
-      if (capturedFilesRef.current.length >= 2) return
-      const ext = 'webp'
-      const file = new File([frame.blob], `capture-${capturedFilesRef.current.length + 1}.${ext}` , { type: (frame.blob as any).type || 'image/webp' })
-      capturedFilesRef.current.push(file)
-    },
-  })
+  // TEMP: Override camera with external video, simulate capture state locally
+  const [isCapturing, setIsCapturing] = useState(false)
+  const startCapture = () => setIsCapturing(true)
+  const stopCapture = () => setIsCapturing(false)
+
+  // const {videoRef, isPreviewing, isCapturing, error, openPreview, close, startCapture, stopCapture, fps, setFps} = useVideoCapture({
+  //   fps: 5,
+  //   mimeType: 'image/webp',
+  //   quality: 0.7,
+  //   facingMode: 'environment',
+  //   width: 720,
+  //   height: 720,
+  //   onFrame: frame => {
+  //     if (capturedFilesRef.current.length >= 2) return
+  //     const ext = 'webp'
+  //     const file = new File([frame.blob], `capture-${capturedFilesRef.current.length + 1}.${ext}` , { type: (frame.blob as any).type || 'image/webp' })
+  //     capturedFilesRef.current.push(file)
+  //   },
+  // })
+
+  // useEffect(() => {
+  //   void openPreview()
+  //   return () => {
+  //     close()
+  //     // cancel any in-flight submission when navigating away
+  //     cancelCurrent()
+  //   }
+  // }, [openPreview, close])
 
   useEffect(() => {
-    void openPreview()
     return () => {
-      close()
       // cancel any in-flight submission when navigating away
       cancelCurrent()
     }
-  }, [openPreview, close])
+  }, [])
 
   const onToggleCapture = async () => {
     if (!isCapturing) {
@@ -58,7 +70,15 @@ export function Capture() {
 
   return (
     <div className="min-h-dvh w-dvw relative bg-black">
-      <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" playsInline muted />
+      {/* TEMP: External video placeholder instead of camera preview */}
+      <video
+        className="absolute inset-0 h-full w-full object-contain bg-black"
+        src="https://raw.githubusercontent.com/bobbykabob/shopify-hackathon-cdn/main/IMG_5051.mp4"
+        playsInline
+        muted
+        autoPlay
+        loop
+      />
 
       <div className="absolute inset-x-0 bottom-0 pb-10 pt-6 flex flex-col items-center gap-3 bg-gradient-to-t from-black/50 to-transparent">
         <button
@@ -76,11 +96,11 @@ export function Capture() {
         </p>
       </div>
 
-      {!isPreviewing && error && (
+      {/* {!isPreviewing && error && (
         <div className="absolute inset-0 flex items-center justify-center p-6">
           <p className="text-red-400 text-center text-sm">{error.message}</p>
         </div>
-      )}
+      )} */}
     </div>
   )
 } 
