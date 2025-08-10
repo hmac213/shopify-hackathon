@@ -27,8 +27,9 @@ export function FullView() {
       ;(window as unknown as { __SPLAT_SINGLE_URL?: string }).__SPLAT_SINGLE_URL = providedUrl || 'chair_trellis.splat'
       ;(window as unknown as { __FORCE_SINGLE?: boolean }).__FORCE_SINGLE = true
 
-      // Load the viewer once the DOM elements exist
-      import('../vendor/splat-single.js').catch((err) => {
+      // Load the viewer once the DOM elements exist (cache-bust to force re-eval)
+      // Vite needs vite-ignore for variable dynamic imports
+      import(/* @vite-ignore */ '../vendor/splat-single.js?ts=' + Date.now()).catch((err) => {
         console.error('Failed to import splat viewer module (full view)', err)
       })
     } catch {}

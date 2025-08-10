@@ -174,7 +174,9 @@ export function Viewer() {
 
     // Dynamically import the vendored module once the DOM is ready
     // Avoid running twice under HMR by setting a global flag
-    import('../vendor/splat-main.js')
+    // Force re-evaluation of the vendored module on each mount to avoid stale singleton state
+    // Vite needs vite-ignore for variable dynamic imports
+    import(/* @vite-ignore */ '../vendor/splat-main.js?ts=' + Date.now())
       .catch((err) => {
         console.error('Failed to import splat viewer module', err)
       })
@@ -344,21 +346,23 @@ export function Viewer() {
         </div>
       </div>
 
-      <Dialog open={showPostDialog} onOpenChange={setShowPostDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Name your shop</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Input placeholder="e.g., Alex’s Studio" value={postName} onChange={(e: any) => setPostName(e.target.value)} />
-            {postError ? <div className="text-xs text-rose-500">{postError}</div> : null}
-          </div>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setShowPostDialog(false)}>Cancel</Button>
-            <Button onClick={onPost} disabled={isPosting}>{isPosting ? 'Posting…' : 'Post'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {showPostDialog && (
+        <Dialog open onOpenChange={setShowPostDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Name your shop</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Input placeholder="e.g., Alex’s Studio" value={postName} onChange={(e: any) => setPostName(e.target.value)} />
+              {postError ? <div className="text-xs text-rose-500">{postError}</div> : null}
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setShowPostDialog(false)}>Cancel</Button>
+              <Button onClick={onPost} disabled={isPosting}>{isPosting ? 'Posting…' : 'Post'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {!showFullView && (
         <AnchoredProductCard
