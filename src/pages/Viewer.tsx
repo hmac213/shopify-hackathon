@@ -1,12 +1,147 @@
-import {useEffect, useRef} from 'react'
+import {useEffect, useRef, useState, useMemo} from 'react'
 import * as THREE from 'three'
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js'
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d'
 import {MODEL_GLB_URL, SPLAT_PLY_URL} from '../config/viewer'
+import {Button, Card, CardContent, CardHeader, CardTitle} from '@shopify/shop-minis-react'
+import {useLocation} from 'react-router'
+import {useCategoryProducts} from '../hooks/useCategoryProducts'
+
+function formatMoneyDisplay(maybeMoney: any): string | null {
+  const money = maybeMoney ?? null
+  const candidate = money && typeof money === 'object' ? money : null
+  const amountStr = candidate?.amount ?? null
+  const currency = candidate?.currencyCode ?? candidate?.currency ?? null
+  if (amountStr && currency) {
+    const amount = Number(amountStr)
+    if (!Number.isNaN(amount)) {
+      try {
+        return new Intl.NumberFormat(undefined, {style: 'currency', currency}).format(amount)
+      } catch {
+        return `${amountStr} ${currency}`
+      }
+    }
+    return `${amountStr} ${currency}`
+  }
+  return null
+}
+
+function extractProductPrice(product: any): string | null {
+  const direct = formatMoneyDisplay(product?.price)
+  if (direct) return direct
+  const rangeMin = formatMoneyDisplay(product?.priceRange?.minVariantPrice)
+  if (rangeMin) return rangeMin
+  const firstVariant = formatMoneyDisplay(product?.variants?.[0]?.price)
+  if (firstVariant) return firstVariant
+  return null
+}
+
+function ModelPreview({url}: {url: string}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const container = containerRef.current
+    const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true})
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setSize(container.clientWidth, container.clientHeight)
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    container.appendChild(renderer.domElement)
+
+    const scene = new THREE.Scene()
+
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      container.clientWidth / container.clientHeight,
+      0.01,
+      2000
+    )
+    camera.position.set(0.8, 0.8, 1.2)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.target.set(0, 0.5, 0)
+    controls.enableDamping = true
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x222233, 1.0)
+    scene.add(hemi)
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0)
+    dir.position.set(3, 5, 2)
+    dir.castShadow = false
+    scene.add(dir)
+
+    const loader = new GLTFLoader()
+    let disposed = false
+
+    loader
+      .loadAsync(url)
+      .then(gltf => {
+        if (disposed) return
+        const model = gltf.scene
+        model.traverse(obj => {
+          const mesh = obj as THREE.Mesh
+          if ((mesh as any).isMesh) {
+            mesh.castShadow = false
+            mesh.receiveShadow = true
+          }
+        })
+        model.position.set(0, 0, 0)
+        model.scale.setScalar(1)
+        scene.add(model)
+
+        const bbox = new THREE.Box3().setFromObject(model)
+        if (!bbox.isEmpty()) {
+          const center = bbox.getCenter(new THREE.Vector3())
+          controls.target.copy(center)
+          controls.update()
+        }
+      })
+      .catch(() => {})
+
+    function onResize() {
+      if (!container) return
+      const {clientWidth, clientHeight} = container
+      camera.aspect = clientWidth / clientHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(clientWidth, clientHeight)
+    }
+
+    const resizeObserver = new ResizeObserver(onResize)
+    resizeObserver.observe(container)
+
+    const loop = () => {
+      if (disposed) return
+      controls.update()
+      renderer.render(scene, camera)
+      requestAnimationFrame(loop)
+    }
+    loop()
+
+    return () => {
+      disposed = true
+      resizeObserver.disconnect()
+      renderer.dispose()
+      if (renderer.domElement && renderer.domElement.parentElement === container) {
+        container.removeChild(renderer.domElement)
+      }
+    }
+  }, [url])
+
+  return <div ref={containerRef} className="w-full h-64 rounded-lg overflow-hidden bg-black/40" />
+}
 
 export function Viewer() {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [showOverlay, setShowOverlay] = useState(false)
+
+  const location = useLocation() as {state?: {category?: string; surprise?: boolean}}
+  const category = location?.state?.category ?? ''
+  const surprise = !!location?.state?.surprise
+  const {products} = useCategoryProducts({category, surprise, first: 20})
+  const firstProduct = useMemo(() => products?.[0], [products])
+  const firstPrice = useMemo(() => extractProductPrice(firstProduct), [firstProduct])
+
   const missingUrls = !SPLAT_PLY_URL || !MODEL_GLB_URL
 
   useEffect(() => {
@@ -130,5 +265,39 @@ export function Viewer() {
     )
   }
 
-  return <div ref={containerRef} className="min-h-dvh w-dvw" />
+  return (
+    <div className="min-h-dvh w-dvw relative">
+      <div ref={containerRef} className="min-h-dvh w-dvw" />
+
+      <div className="absolute inset-x-0 bottom-0 pb-8 pt-6 flex justify-center bg-gradient-to-t from-black/50 to-transparent">
+        <Button size="lg" onClick={() => setShowOverlay(true)}>View</Button>
+      </div>
+
+      {showOverlay && (
+        <div className="absolute inset-0 z-10 bg-black/70 backdrop-blur-sm flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="text-white text-base font-medium">Product</div>
+            <Button variant="secondary" onClick={() => setShowOverlay(false)}>✕</Button>
+          </div>
+
+          <div className="px-4 pb-4 space-y-4 overflow-auto">
+            <ModelPreview url={MODEL_GLB_URL} />
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{(firstProduct as any)?.title ?? (firstProduct as any)?.name ?? 'Selected Product'}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <div>ID: {(firstProduct as any)?.id ?? '—'}</div>
+                  {Boolean((firstProduct as any)?.vendor) && <div>Vendor: {(firstProduct as any)?.vendor}</div>}
+                  {firstPrice && <div>Price: {firstPrice}</div>}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 } 
