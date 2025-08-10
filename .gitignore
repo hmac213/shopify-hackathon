@@ -1,0 +1,10 @@
+node_modules
+.minis-cache
+*.tsbuildinfo
+.env
+
+# Ignore local heavy assets (use CDN)
+public/assets/
+
+# Ignore examples folder locally
+examples/
