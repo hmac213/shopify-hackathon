@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {SPLAT_PLY_URL, BASE_PLY_URL} from '../config/viewer'
-import {Button, ProductCard, useShopCartActions, QuantitySelector, useDeeplink, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter} from '@shopify/shop-minis-react'
+
+import {Button, ProductCard, useShopCartActions, QuantitySelector, useDeeplink, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, useShare} from '@shopify/shop-minis-react'
 import {X as CloseIcon} from 'lucide-react'
 import {useLocation, useNavigate} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
@@ -113,7 +114,7 @@ export function Viewer() {
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
   const [anchor, setAnchor] = useState<{x: number; y: number} | null>(null)
   const [sourceUrl, setSourceUrl] = useState<string | null>(null)
-  const [activeProductId, setActiveProductId] = useState<string | null>(null)
+  // const [activeProductId, setActiveProductId] = useState<string | null>(null)
   const [showFullView, setShowFullView] = useState(false)
   const routeLocation = useLocation() as {state?: {category?: string; surprise?: boolean; productIds?: string[]}}
   const navigate = useNavigate()
@@ -293,11 +294,10 @@ export function Viewer() {
           anchor={anchor}
           selectedPointId={selectedPointId}
           sourceUrl={sourceUrl}
-          onClose={() => { setSelectedPointId(null); setAnchor(null); setActiveProductId(null); setSourceUrl(null) }}
+          onClose={() => { setSelectedPointId(null); setAnchor(null); setSourceUrl(null) }}
           onFullView={(productId) => {
-            setActiveProductId(productId)
             setShowFullView(false)
-            const params = new URLSearchParams({ url: sourceUrl || '' })
+            const params = new URLSearchParams({ url: sourceUrl || '' , productId: productId || '' })
             navigate(`/full?${params.toString()}`, { replace: false })
             setSelectedPointId(null)
             setAnchor(null)
@@ -397,6 +397,9 @@ function SdkProductCard({product, sourceUrl, onClose, onFullView}: {product: any
   )
 }
 
+// FullProductView moved to a dedicated page: see FullView.tsx
+
+// Viewer details UI moved to FullView
 // Stubs retained for compatibility after moving full view to its own page
 export function FullProductView(_props: {productId: string; sourceUrl: string | null; onClose: () => void}) {
   return null

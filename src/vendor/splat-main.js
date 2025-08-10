@@ -772,18 +772,39 @@ async function main() {
     let reader;
     if (!useMulti) {
         console.log('[splat] fetch url', url.toString())
-        const req = await fetch(url, {
-            mode: "cors", // no-cors, *cors, same-origin
-            credentials: "omit", // include, *same-origin, omit
-        });
-        console.log(req);
-        if (req.status != 200)
-            throw new Error(req.status + " Unable to load " + req.url);
-        splatData = new Uint8Array(Number(req.headers.get("content-length")) || 0);
-        if (!req.body || !req.body.getReader) {
-            throw new Error('[splat] Response body is not a readable stream')
+        let req = null;
+        let usedCache = false;
+        try {
+            if (typeof caches !== 'undefined') {
+                const cache = await caches.open('splat-cache-v1');
+                const cached = await cache.match(url.toString());
+                if (cached) {
+                    req = cached;
+                    usedCache = true;
+                }
+            }
+        } catch {}
+        if (!req) {
+            req = await fetch(url, { mode: "cors", credentials: "omit" });
+            if (req && req.ok) {
+                try {
+                    if (typeof caches !== 'undefined') {
+                        const cache = await caches.open('splat-cache-v1');
+                        await cache.put(url.toString(), req.clone());
+                    }
+                } catch {}
+            }
         }
-        reader = req.body.getReader();
+        if (!req || req.status != 200) throw new Error((req && req.status) + " Unable to load " + (req && req.url));
+        if (req.body && req.body.getReader && !usedCache) {
+            // Stream when network response provides a body stream; cached responses often don't
+            splatData = new Uint8Array(Number(req.headers.get("content-length")) || 0);
+            reader = req.body.getReader();
+        } else {
+            const ab = await req.arrayBuffer();
+            splatData = new Uint8Array(ab);
+            reader = null;
+        }
     }
 
     const downsample =
@@ -831,30 +852,35 @@ async function main() {
     const camid = document.getElementById("camid");
 
     // Load points from multiSplat.json (hot-loadable) and create trackers for each
+    // Disable in single mode/full view so purple dots don't appear
+    const trackersEnabled = !forceSingle
     let points = []
     let pointMeta = new Map()
-    try {
-        const mod = await import('../config/multiSplat.json')
-        const list = (mod && (mod.default || mod)) || []
-        if (Array.isArray(list) && list.length > 0) {
-            const eps = 1e-6
-            points = list.map((item, idx) => ({
-                id: item.id || `p${idx}`,
-                x: Number(item.tx ?? item.x ?? 0),
-                y: Number(item.ty ?? item.y ?? 0),
-                z: Number(item.tz ?? item.z ?? 0),
-            })).filter(p => !(Math.abs(p.x) < eps && Math.abs(p.y) < eps && Math.abs(p.z) < eps))
-            // Build metadata map for quick lookup (e.g., source url)
-            pointMeta = new Map(list.map((item, idx) => [item.id || `p${idx}` , { url: item.url }]))
-        } else {
+    if (trackersEnabled) {
+        try {
+            const mod = await import('../config/multiSplat.json')
+            const list = (mod && (mod.default || mod)) || []
+            if (Array.isArray(list) && list.length > 0) {
+                const eps = 1e-6
+                points = list.map((item, idx) => ({
+                    id: item.id || `p${idx}`,
+                    x: Number(item.tx ?? item.x ?? 0),
+                    y: Number(item.ty ?? item.y ?? 0),
+                    z: Number(item.tz ?? item.z ?? 0),
+                })).filter(p => !(Math.abs(p.x) < eps && Math.abs(p.y) < eps && Math.abs(p.z) < eps))
+                // Build metadata map for quick lookup (e.g., source url)
+                pointMeta = new Map(list.map((item, idx) => [item.id || `p${idx}` , { url: item.url }]))
+            } else {
+                points = []
+            }
+        } catch (e) {
+            console.warn('[splat] unable to load multiSplat.json; no trackers will be shown')
             points = []
         }
-    } catch (e) {
-        console.warn('[splat] unable to load multiSplat.json; no trackers will be shown')
-        points = []
     }
     const trackers = new Map()
     const ensureTracker = (id) => {
+        if (!trackersEnabled) return null
         if (trackers.has(id)) return trackers.get(id)
         const el = document.createElement('div')
         el.dataset.id = id
@@ -949,17 +975,20 @@ async function main() {
     const resize = () => {
         gl.uniform2fv(u_focal, new Float32Array([camera.fx, camera.fy]));
 
+        const width = (canvas && canvas.clientWidth) ? canvas.clientWidth : innerWidth;
+        const height = (canvas && canvas.clientHeight) ? canvas.clientHeight : innerHeight;
+
         projectionMatrix = getProjectionMatrix(
             camera.fx,
             camera.fy,
-            innerWidth,
-            innerHeight,
+            width,
+            height,
         );
 
-        gl.uniform2fv(u_viewport, new Float32Array([innerWidth, innerHeight]));
+        gl.uniform2fv(u_viewport, new Float32Array([width, height]));
 
-        gl.canvas.width = Math.round(innerWidth / downsample);
-        gl.canvas.height = Math.round(innerHeight / downsample);
+        gl.canvas.width = Math.round(width / downsample);
+        gl.canvas.height = Math.round(height / downsample);
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
         gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
@@ -1471,29 +1500,32 @@ async function main() {
             ];
         };
         const positions = {};
-        for (const p of points) {
-            const el = ensureTracker(p.id)
-            const camP = mulMatVec(actualViewMatrix, [p.x, p.y, p.z, 1]);
-            const clip = mulMatVec(projectionMatrix, camP);
-            const w = clip[3] || 1;
-            const ndcX = clip[0] / w;
-            const ndcY = clip[1] / w;
-            const ndcZ = clip[2] / w;
-            const inside = ndcZ > -1 && ndcZ < 1 && Math.abs(ndcX) <= 1.2 && Math.abs(ndcY) <= 1.2;
-            if (inside) {
-                const sx = (ndcX * 0.5 + 0.5) * innerWidth;
-                const sy = (1 - (ndcY * 0.5 + 0.5)) * innerHeight;
-                el.style.left = `${sx}px`;
-                el.style.top = `${sy}px`;
-                el.style.display = '';
-                positions[p.id] = { x: sx, y: sy, visible: true };
-            } else {
-                el.style.display = 'none';
-                positions[p.id] = { x: undefined, y: undefined, visible: false };
+        if (trackersEnabled && points.length > 0) {
+            for (const p of points) {
+                const el = ensureTracker(p.id)
+                if (!el) continue
+                const camP = mulMatVec(actualViewMatrix, [p.x, p.y, p.z, 1]);
+                const clip = mulMatVec(projectionMatrix, camP);
+                const w = clip[3] || 1;
+                const ndcX = clip[0] / w;
+                const ndcY = clip[1] / w;
+                const ndcZ = clip[2] / w;
+                const inside = ndcZ > -1 && ndcZ < 1 && Math.abs(ndcX) <= 1.2 && Math.abs(ndcY) <= 1.2;
+                if (inside) {
+                    const sx = (ndcX * 0.5 + 0.5) * innerWidth;
+                    const sy = (1 - (ndcY * 0.5 + 0.5)) * innerHeight;
+                    el.style.left = `${sx}px`;
+                    el.style.top = `${sy}px`;
+                    el.style.display = '';
+                    positions[p.id] = { x: sx, y: sy, visible: true };
+                } else if (el) {
+                    el.style.display = 'none';
+                    positions[p.id] = { x: undefined, y: undefined, visible: false };
+                }
             }
+            // Publish the latest screen-space positions for points so UI can follow
+            window.dispatchEvent(new CustomEvent('splat:points_screen', { detail: { positions } }))
         }
-        // Publish the latest screen-space positions for points so UI can follow
-        window.dispatchEvent(new CustomEvent('splat:points_screen', { detail: { positions } }))
         worker.postMessage({ view: viewProj });
 
         const currentFps = 1000 / (now - lastFrame) || 0;
@@ -1530,7 +1562,23 @@ async function main() {
         try {
             const makeAbs = (u) => new URL(u, baseStr).toString();
             const urls = multiList.map((item) => makeAbs(item.url));
-            const responses = await Promise.all(urls.map((u) => fetch(u, { mode: 'cors', credentials: 'omit' })));
+            const responses = await Promise.all(urls.map(async (u) => {
+                try {
+                    if (typeof caches !== 'undefined') {
+                        const cache = await caches.open('splat-cache-v1');
+                        const cached = await cache.match(u);
+                        if (cached) return cached;
+                    }
+                } catch {}
+                const resp = await fetch(u, { mode: 'cors', credentials: 'omit' });
+                try {
+                    if (typeof caches !== 'undefined') {
+                        const cache = await caches.open('splat-cache-v1');
+                        await cache.put(u, resp.clone());
+                    }
+                } catch {}
+                return resp;
+            }));
             const buffers = await Promise.all(responses.map((r) => r.arrayBuffer()))
             const u8s = buffers.map((b) => new Uint8Array(b));
             const alignedLengths = u8s.map((u, i) => {
@@ -1569,46 +1617,66 @@ async function main() {
     }
 
     // Multi-splat merge: if config exists, fetch and merge into one buffer, translating per object
+    // Respect forced single mode via query param or global flag
     try {
-        const listMod = await import('../config/multiSplat.json');
-        const list = (listMod && (listMod.default || listMod)) || [];
-        if (Array.isArray(list) && list.length > 0) {
-            const makeAbs = (u) => new URL(u, baseStr).toString();
-            const urls = list.map((item) => makeAbs(item.url));
-            const responses = await Promise.all(urls.map((u) => fetch(u, { mode: 'cors', credentials: 'omit' })));
-            const buffers = await Promise.all(responses.map((r) => r.arrayBuffer()))
-            const u8s = buffers.map((b) => new Uint8Array(b));
-            // Enforce per-file alignment to rowLength (32 bytes). Trim any trailing remainder bytes.
-            const alignedLengths = u8s.map((u, i) => {
-                const aligned = Math.floor(u.byteLength / rowLength) * rowLength;
-                if (aligned !== u.byteLength) {
-                    console.warn('[splat] trimming non-aligned splat bytes', { index: i, byteLength: u.byteLength, aligned });
+        const forceSingle2 = (params.get('single') === '1') || (typeof window !== 'undefined' && window.__FORCE_SINGLE === true);
+        if (!forceSingle2) {
+            const listMod = await import('../config/multiSplat.json');
+            const list = (listMod && (listMod.default || listMod)) || [];
+            if (Array.isArray(list) && list.length > 0) {
+                const makeAbs = (u) => new URL(u, baseStr).toString();
+                const urls = list.map((item) => makeAbs(item.url));
+                const responses = await Promise.all(urls.map(async (u) => {
+                    try {
+                        if (typeof caches !== 'undefined') {
+                            const cache = await caches.open('splat-cache-v1');
+                            const cached = await cache.match(u);
+                            if (cached) return cached;
+                        }
+                    } catch {}
+                    const resp = await fetch(u, { mode: 'cors', credentials: 'omit' });
+                    try {
+                        if (typeof caches !== 'undefined') {
+                            const cache = await caches.open('splat-cache-v1');
+                            await cache.put(u, resp.clone());
+                        }
+                    } catch {}
+                    return resp;
+                }));
+                const buffers = await Promise.all(responses.map((r) => r.arrayBuffer()))
+                const u8s = buffers.map((b) => new Uint8Array(b));
+                // Enforce per-file alignment to rowLength (32 bytes). Trim any trailing remainder bytes.
+                const alignedLengths = u8s.map((u, i) => {
+                    const aligned = Math.floor(u.byteLength / rowLength) * rowLength;
+                    if (aligned !== u.byteLength) {
+                        console.warn('[splat] trimming non-aligned splat bytes', { index: i, byteLength: u.byteLength, aligned });
+                    }
+                    return aligned;
+                });
+                const totalBytes = alignedLengths.reduce((acc, n) => acc + n, 0);
+                const merged = new ArrayBuffer(totalBytes);
+                const mergedU8 = new Uint8Array(merged);
+                const dv = new DataView(merged);
+                let offset = 0;
+                for (let i = 0; i < u8s.length; i++) {
+                    const src = u8s[i];
+                    const tx = Number(list[i].tx || list[i].x || 0);
+                    const ty = Number(list[i].ty || list[i].y || 0);
+                    const tz = Number(list[i].tz || list[i].z || 0);
+                    const usable = alignedLengths[i];
+                    if (usable === 0) continue;
+                    mergedU8.set(src.subarray(0, usable), offset);
+                    for (let j = 0; j < usable; j += rowLength) {
+                        const base = offset + j;
+                        dv.setFloat32(base + 0, dv.getFloat32(base + 0, true) + tx, true);
+                        dv.setFloat32(base + 4, dv.getFloat32(base + 4, true) + ty, true);
+                        dv.setFloat32(base + 8, dv.getFloat32(base + 8, true) + tz, true);
+                    }
+                    offset += usable;
                 }
-                return aligned;
-            });
-            const totalBytes = alignedLengths.reduce((acc, n) => acc + n, 0);
-            const merged = new ArrayBuffer(totalBytes);
-            const mergedU8 = new Uint8Array(merged);
-            const dv = new DataView(merged);
-            let offset = 0;
-            for (let i = 0; i < u8s.length; i++) {
-                const src = u8s[i];
-                const tx = Number(list[i].tx || list[i].x || 0);
-                const ty = Number(list[i].ty || list[i].y || 0);
-                const tz = Number(list[i].tz || list[i].z || 0);
-                const usable = alignedLengths[i];
-                if (usable === 0) continue;
-                mergedU8.set(src.subarray(0, usable), offset);
-                for (let j = 0; j < usable; j += rowLength) {
-                    const base = offset + j;
-                    dv.setFloat32(base + 0, dv.getFloat32(base + 0, true) + tx, true);
-                    dv.setFloat32(base + 4, dv.getFloat32(base + 4, true) + ty, true);
-                    dv.setFloat32(base + 8, dv.getFloat32(base + 8, true) + tz, true);
-                }
-                offset += usable;
+                splatData = new Uint8Array(merged);
+                worker.postMessage({ buffer: merged, vertexCount: Math.floor(merged.byteLength / rowLength) }, [merged]);
             }
-            splatData = new Uint8Array(merged);
-            worker.postMessage({ buffer: merged, vertexCount: Math.floor(merged.byteLength / rowLength) }, [merged]);
         }
     } catch {}
 
@@ -1676,35 +1744,45 @@ async function main() {
     });
 
     if (!useMulti) {
-        let bytesRead = 0;
-        let lastVertexCount = -1;
         let stopLoading = false;
+        if (reader) {
+            let bytesRead = 0;
+            let lastVertexCount = -1;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done || stopLoading) break;
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done || stopLoading) break;
+                splatData.set(value, bytesRead);
+                bytesRead += value.length;
 
-            splatData.set(value, bytesRead);
-            bytesRead += value.length;
-
-            if (vertexCount > lastVertexCount) {
-                if (!isPly(splatData)) {
+                if (vertexCount > lastVertexCount) {
+                    if (!isPly(splatData)) {
+                        worker.postMessage({
+                            buffer: splatData.buffer,
+                            vertexCount: Math.floor(bytesRead / rowLength),
+                        });
+                    }
+                    lastVertexCount = vertexCount;
+                }
+            }
+            if (!stopLoading) {
+                if (isPly(splatData)) {
+                    worker.postMessage({ ply: splatData.buffer, save: false });
+                } else {
                     worker.postMessage({
                         buffer: splatData.buffer,
                         vertexCount: Math.floor(bytesRead / rowLength),
                     });
                 }
-                lastVertexCount = vertexCount;
             }
-        }
-        if (!stopLoading) {
+        } else {
+            // Already have full bytes (from cache). Post immediately.
             if (isPly(splatData)) {
-                // ply file magic header means it should be handled differently
                 worker.postMessage({ ply: splatData.buffer, save: false });
             } else {
                 worker.postMessage({
                     buffer: splatData.buffer,
-                    vertexCount: Math.floor(bytesRead / rowLength),
+                    vertexCount: Math.floor(splatData.length / rowLength),
                 });
             }
         }
