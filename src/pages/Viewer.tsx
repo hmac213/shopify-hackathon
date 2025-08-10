@@ -1,11 +1,9 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
-import {Button} from '@shopify/shop-minis-react'
 import {SPLAT_PLY_URL, BASE_PLY_URL} from '../config/viewer'
 import {Button, ProductCard, useProductMedia, useShopCartActions, QuantitySelector, useShare, useDeeplink} from '@shopify/shop-minis-react'
 import {X as CloseIcon} from 'lucide-react'
 import {useLocation} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
-import {SPLAT_PLY_URL} from '../config/viewer'
 
 type LogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 
