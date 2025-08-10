@@ -63,13 +63,14 @@ export function Capture() {
       <div className="absolute inset-x-0 bottom-0 pb-10 pt-6 flex flex-col items-center gap-3 bg-gradient-to-t from-black/50 to-transparent">
         <button
           aria-label={isCapturing ? 'Stop recording' : 'Start recording'}
+          aria-pressed={isCapturing}
           onClick={onToggleCapture}
-          className={`relative h-16 w-16 rounded-full ${
-            isCapturing ? 'bg-red-500' : 'bg-white'
-          } shadow-lg outline-none border-2 ${isCapturing ? 'border-red-200' : 'border-gray-200'}`}
-        >
-          <span className="absolute inset-0 rounded-full border-4 border-white/60" />
-        </button>
+          className={`relative h-20 w-20 rounded-full bg-transparent border-4 outline-none transition-colors duration-200 ${
+            isCapturing
+              ? 'border-pink-500 shadow-[0_0_24px_rgba(244,114,182,0.55)]'
+              : 'border-white/90 shadow-[0_0_20px_rgba(255,255,255,0.35)]'
+          }`}
+        />
         <p className="text-white text-sm opacity-90">
           Record a 360 degree shot of your environment slowly.
         </p>
