@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {SPLAT_PLY_URL, BASE_PLY_URL} from '../config/viewer'
-import {Button, ProductCard, useShopCartActions, QuantitySelector, useShare, useDeeplink} from '@shopify/shop-minis-react'
+import {Button, ProductCard, useShopCartActions, QuantitySelector, useDeeplink, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter} from '@shopify/shop-minis-react'
 import {X as CloseIcon} from 'lucide-react'
 import {useLocation, useNavigate} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
@@ -119,6 +119,10 @@ export function Viewer() {
   const navigate = useNavigate()
   const {queryParams} = useDeeplink()
   const viewerPool = useCategoryProductsForViewer()
+  const [showPostDialog, setShowPostDialog] = useState(false)
+  const [postName, setPostName] = useState('')
+  const [isPosting, setIsPosting] = useState(false)
+  const [postError, setPostError] = useState<string | null>(null)
 
   const envInfo = useMemo(
     () => ({
@@ -168,9 +172,8 @@ export function Viewer() {
     }
   }, [])
 
-  // Share current creation (scene + selection)
-  const {share} = useShare()
-  const onShare = async () => {
+  // Post current creation (scene + selection)
+  const onPost = async () => {
     try {
       const params = new URLSearchParams(window.location.search)
       const sceneUrl = params.get('url') || SPLAT_PLY_URL || ''
@@ -185,23 +188,19 @@ export function Viewer() {
         productIds: productIds.join(','),
       })
       const url = `${origin}/viewer?${query.toString()}`
-      await share({ url, title: 'Check out my Mini Shop scene' })
+      // Send to arbitrary endpoint (placeholder) — opt-in to leaderboard
+      setIsPosting(true)
+      setPostError(null)
+      await fetch('https://example.com/leaderboard/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, name: postName.trim() || 'My Mini Shop', category })
+      })
+      setShowPostDialog(false)
+      setIsPosting(false)
     } catch (e) {
-      try {
-        if (navigator.share) {
-          const params = new URLSearchParams(window.location.search)
-          const sceneUrl = params.get('url') || SPLAT_PLY_URL || ''
-          const productIds = firstFourProductIds(viewerPool)
-          const category = (queryParams?.category as string | undefined) || routeLocation?.state?.category || ''
-          const surprise = (queryParams?.surprise === 'true') || !!routeLocation?.state?.surprise
-          const origin = window.location.origin
-          const query = new URLSearchParams({ url: sceneUrl, category, surprise: String(!!surprise), productIds: productIds.join(',') })
-          const url = `${origin}/viewer?${query.toString()}`
-          await navigator.share({ url, title: 'Check out my Mini Shop scene' })
-        } else {
-          await navigator.clipboard.writeText(window.location.href)
-        }
-      } catch {}
+      setIsPosting(false)
+      setPostError('Failed to post. Please try again later.')
     }
   }
 
@@ -268,10 +267,26 @@ export function Viewer() {
 
       <div className="absolute inset-x-4 bottom-4 z-40">
         <div className="grid grid-cols-2 gap-3">
-          <Button size="lg" className="w-full" onClick={onShare}>Share</Button>
+          <Button size="lg" className="w-full" onClick={() => setShowPostDialog(true)}>Post</Button>
           <Button size="lg" variant="secondary" className="w-full" onClick={() => window.dispatchEvent(new CustomEvent('splat:reset_view'))}>Center</Button>
         </div>
       </div>
+
+      <Dialog open={showPostDialog} onOpenChange={setShowPostDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Name your shop</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input placeholder="e.g., Alex’s Studio" value={postName} onChange={(e: any) => setPostName(e.target.value)} />
+            {postError ? <div className="text-xs text-rose-500">{postError}</div> : null}
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setShowPostDialog(false)}>Cancel</Button>
+            <Button onClick={onPost} disabled={isPosting}>{isPosting ? 'Posting…' : 'Post'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {!showFullView && (
         <AnchoredProductCard
@@ -382,100 +397,13 @@ function SdkProductCard({product, sourceUrl, onClose, onFullView}: {product: any
   )
 }
 
-function FullProductView({productId, sourceUrl, onClose}: {productId: string; sourceUrl: string | null; onClose: () => void}) {
-
-  function InlineSplatCanvas({sourceUrl}: {sourceUrl: string | null}) {
-    const ref = useRef<HTMLCanvasElement | null>(null)
-    useEffect(() => {
-      let renderer: {dispose: () => void} | null = null
-      if (ref.current && sourceUrl) {
-        createSingleSplatRenderer(ref.current, sourceUrl).then(r => { renderer = r }).catch(() => {})
-      }
-      return () => { try { renderer?.dispose() } catch {} }
-    }, [sourceUrl])
-    if (!sourceUrl) return <div className="absolute inset-0 grid place-items-center text-gray-500 text-sm">No 3D model available</div>
-    return <canvas ref={ref} className="absolute inset-0 w-full h-full" />
-  }
-
-  return (
-    <div className="absolute inset-0 z-[70] bg-white flex flex-col">
-      <div className="relative h-[68vh] bg-gray-100">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/20 to-transparent" />
-        <Button
-           size="lg"
-           variant="icon"
-           onClick={onClose}
-           aria-label="Close"
-           className="absolute top-3 right-3 z-[50] size-12 pointer-events-auto"
-         >
-           <CloseIcon />
-         </Button>
-        <InlineSplatCanvas sourceUrl={sourceUrl} />
-      </div>
-      <ViewerProductDetails productId={productId} sourceUrl={sourceUrl} />
-    </div>
-  )
+// Stubs retained for compatibility after moving full view to its own page
+export function FullProductView(_props: {productId: string; sourceUrl: string | null; onClose: () => void}) {
+  return null
 }
 
-function ViewerProductDetails({productId, sourceUrl}: {productId: string; sourceUrl: string | null}) {
-  // Reuse category pool to locate product details without another fetch
-  const pool = useCategoryProductsForViewer()
-  const product = pool.find((p: any) => p.id === productId)
-  const {addToCart, buyProduct} = useShopCartActions()
-  const [quantity, setQuantity] = useState<number>(1)
-
-  const onAddToCart = async () => {
-    if (!product) return
-    const variantId = (product as any).selectedVariant?.id || (product as any).defaultVariantId
-    const shopId = (product as any).shop?.id
-    if (!variantId || !shopId) return
-    await addToCart({ productId, productVariantId: variantId, quantity })
-  }
-  const onBuyNow = async () => {
-    if (!product) return
-    const variantId = (product as any).selectedVariant?.id || (product as any).defaultVariantId
-    const shopId = (product as any).shop?.id
-    if (!variantId || !shopId) return
-    await buyProduct({ productId, productVariantId: variantId, quantity })
-  }
-  return (
-    <div className="flex-1 p-4 space-y-2 border-t border-black/10 overflow-auto">
-      {product ? (
-        <>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-base font-semibold truncate">{sourceUrl || product.title}</div>
-              {(product as any).shop?.name ? (
-                <div className="text-xs text-gray-500 truncate mt-0.5">{(product as any).shop.name}</div>
-              ) : null}
-            </div>
-            <div className="text-base font-semibold whitespace-nowrap">
-              {product.price?.amount ? `${product.price.amount} ${product.price.currencyCode}` : ''}
-            </div>
-          </div>
-
-          <div className="text-sm text-gray-700">
-            {(product as any).description ? (
-              <div className="line-clamp-6">{(product as any).description}</div>
-            ) : (product as any).descriptionHtml ? (
-              <div className="prose prose-sm max-w-none line-clamp-6" dangerouslySetInnerHTML={{__html: (product as any).descriptionHtml}} />
-            ) : null}
-          </div>
-
-          <div className="sticky bottom-0 left-0 right-0 bg-white pt-2 pb-4 pb-[env(safe-area-inset-bottom)]">
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-xs text-gray-600">Qty</span>
-              <QuantitySelector quantity={quantity} onQuantityChange={setQuantity} maxQuantity={99} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Button size="lg" variant="secondary" className="w-full py-4" onClick={onAddToCart}>Add to Cart</Button>
-              <Button size="lg" className="w-full py-4" onClick={onBuyNow}>Buy Now</Button>
-            </div>
-          </div>
-        </>
-      ) : null}
-    </div>
-  )
+export function ViewerProductDetails(_props: {productId: string; sourceUrl: string | null}) {
+  return null
 }
 
 // Select 4 products for the viewer based on category from navigation state (passed via Loading)
