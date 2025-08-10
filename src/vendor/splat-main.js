@@ -1922,11 +1922,16 @@ if (typeof window !== 'undefined') {
                 }
             });
             
-            // Reset all global flags
+            // Reset all global flags (including FullView flags to prevent conflicts)
             delete window.__splatLoaded;
+            delete window.__splatSingleLoaded; // Also clear FullView's flag
             delete window.__SPLAT_URL;
             delete window.__SPLAT_BASE;
+            delete window.__SPLAT_SINGLE_URL; // Also clear FullView's URL
+            delete window.__SPLAT_SINGLE_BASE; // Also clear FullView's base
+            delete window.__FORCE_SINGLE; // Also clear FullView's force single flag
             delete window.__splatMainCleanup;
+            delete window.__splatSingleCleanup; // Also clear FullView's cleanup function
             
             console.log('[splat-main] Cleanup completed');
         };

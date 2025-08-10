@@ -1831,12 +1831,16 @@ if (typeof window !== 'undefined') {
                 }
             });
             
-            // Reset all global flags
+            // Reset all global flags (including Viewer flags to prevent conflicts)
             delete window.__splatSingleLoaded;
+            delete window.__splatLoaded; // Also clear Viewer's flag
             delete window.__SPLAT_SINGLE_URL;
             delete window.__SPLAT_SINGLE_BASE;
+            delete window.__SPLAT_URL; // Also clear Viewer's URL
+            delete window.__SPLAT_BASE; // Also clear Viewer's base
             delete window.__FORCE_SINGLE;
             delete window.__splatSingleCleanup;
+            delete window.__splatMainCleanup; // Also clear Viewer's cleanup function
             
             console.log('[splat-single] Cleanup completed');
         };
