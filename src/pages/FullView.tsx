@@ -20,22 +20,16 @@ export function FullView() {
         history.replaceState({}, '', next)
       }
 
-      // Compute absolute URL if possible
-      let effectiveUrl = providedUrl
-      try {
-        effectiveUrl = providedBase
-          ? new URL(providedUrl, providedBase).toString()
-          : new URL(providedUrl).toString()
-      } catch {}
-
-      ;(window as unknown as { __SPLAT_SINGLE_URL?: string }).__SPLAT_SINGLE_URL = effectiveUrl
-      if (providedBase) {
-        ;(window as unknown as { __SPLAT_SINGLE_BASE?: string }).__SPLAT_SINGLE_BASE = providedBase
-      }
+      // Set the base URL first (this is what the splat script uses)
+      ;(window as unknown as { __SPLAT_SINGLE_BASE?: string }).__SPLAT_SINGLE_BASE = providedBase || BASE_PLY_URL
+      
+      // Set the URL (can be relative or absolute)
+      ;(window as unknown as { __SPLAT_SINGLE_URL?: string }).__SPLAT_SINGLE_URL = providedUrl || 'chair_trellis.splat'
       ;(window as unknown as { __FORCE_SINGLE?: boolean }).__FORCE_SINGLE = true
 
-      // Load the viewer once the DOM elements exist
-      import('../vendor/splat-single.js').catch((err) => {
+      // Load the viewer once the DOM elements exist (cache-bust to force re-eval)
+      // Vite needs vite-ignore for variable dynamic imports
+      import(/* @vite-ignore */ '../vendor/splat-single.js?ts=' + Date.now()).catch((err) => {
         console.error('Failed to import splat viewer module (full view)', err)
       })
     } catch {}
@@ -43,6 +37,19 @@ export function FullView() {
     return () => {
       // Comprehensive cleanup when component unmounts
       console.log('FullView: starting comprehensive cleanup')
+      
+      // Debug: Log current global state before cleanup
+      console.log('FullView: Global state before cleanup:', {
+        __splatLoaded: (window as any).__splatLoaded,
+        __splatSingleLoaded: (window as any).__splatSingleLoaded,
+        __SPLAT_URL: (window as any).__SPLAT_URL,
+        __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: (window as any).__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+        __splatMainCleanup: !!(window as any).__splatMainCleanup,
+        __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
+      })
       
       // Call the splat script's cleanup function if available
       if ((window as any).__splatSingleCleanup) {
@@ -64,6 +71,19 @@ export function FullView() {
       
       const message = document.getElementById('message')
       if (message) message.innerText = ''
+      
+      // Debug: Log global state after cleanup
+      console.log('FullView: Global state after cleanup:', {
+        __splatLoaded: (window as any).__splatLoaded,
+        __splatSingleLoaded: (window as any).__splatSingleLoaded,
+        __SPLAT_URL: (window as any).__SPLAT_URL,
+        __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: (window as any).__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+        __splatMainCleanup: !!(window as any).__splatMainCleanup,
+        __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
+      })
       
       console.log('FullView: cleanup completed')
     }

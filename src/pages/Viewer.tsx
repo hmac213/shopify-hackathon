@@ -139,6 +139,19 @@ export function Viewer() {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // Debug: Log global state before Viewer initialization
+    console.log('Viewer: Global state before initialization:', {
+      __splatLoaded: (window as any).__splatLoaded,
+      __splatSingleLoaded: (window as any).__splatSingleLoaded,
+      __SPLAT_URL: (window as any).__SPLAT_URL,
+      __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+      __SPLAT_BASE: (window as any).__SPLAT_BASE,
+      __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+      __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+      __splatMainCleanup: !!(window as any).__splatMainCleanup,
+      __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
+    })
+    
     // Ensure URL param is set so the vendored script picks it up
     try {
       // Build an absolute URL using base+path when provided
@@ -161,7 +174,9 @@ export function Viewer() {
 
     // Dynamically import the vendored module once the DOM is ready
     // Avoid running twice under HMR by setting a global flag
-    import('../vendor/splat-main.js')
+    // Force re-evaluation of the vendored module on each mount to avoid stale singleton state
+    // Vite needs vite-ignore for variable dynamic imports
+    import(/* @vite-ignore */ '../vendor/splat-main.js?ts=' + Date.now())
       .catch((err) => {
         console.error('Failed to import splat viewer module', err)
       })
@@ -169,6 +184,19 @@ export function Viewer() {
     return () => {
       // Comprehensive cleanup when component unmounts
       console.log('Viewer: starting comprehensive cleanup')
+      
+      // Debug: Log current global state before cleanup
+      console.log('Viewer: Global state before cleanup:', {
+        __splatLoaded: (window as any).__splatLoaded,
+        __splatSingleLoaded: (window as any).__splatSingleLoaded,
+        __SPLAT_URL: (window as any).__SPLAT_URL,
+        __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: (window as any).__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+        __splatMainCleanup: !!(window as any).__splatMainCleanup,
+        __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
+      })
       
       // Call the splat script's cleanup function if available
       if ((window as any).__splatMainCleanup) {
@@ -199,6 +227,19 @@ export function Viewer() {
         } catch (e) {
           console.warn('Viewer: error removing tracker:', e)
         }
+      })
+      
+      // Debug: Log global state after cleanup
+      console.log('Viewer: Global state after cleanup:', {
+        __splatLoaded: (window as any).__splatLoaded,
+        __splatSingleLoaded: (window as any).__splatSingleLoaded,
+        __SPLAT_URL: (window as any).__SPLAT_URL,
+        __SPLAT_SINGLE_URL: (window as any).__SPLAT_SINGLE_URL,
+        __SPLAT_BASE: (window as any).__SPLAT_BASE,
+        __SPLAT_SINGLE_BASE: (window as any).__SPLAT_SINGLE_BASE,
+        __FORCE_SINGLE: (window as any).__FORCE_SINGLE,
+        __splatMainCleanup: !!(window as any).__splatMainCleanup,
+        __splatSingleCleanup: !!(window as any).__splatSingleCleanup,
       })
       
       console.log('Viewer: cleanup completed')
@@ -305,21 +346,23 @@ export function Viewer() {
         </div>
       </div>
 
-      <Dialog open={showPostDialog} onOpenChange={setShowPostDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Name your shop</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Input placeholder="e.g., Alex’s Studio" value={postName} onChange={(e: any) => setPostName(e.target.value)} />
-            {postError ? <div className="text-xs text-rose-500">{postError}</div> : null}
-          </div>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setShowPostDialog(false)}>Cancel</Button>
-            <Button onClick={onPost} disabled={isPosting}>{isPosting ? 'Posting…' : 'Post'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {showPostDialog && (
+        <Dialog open onOpenChange={setShowPostDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Name your shop</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Input placeholder="e.g., Alex’s Studio" value={postName} onChange={(e: any) => setPostName(e.target.value)} />
+              {postError ? <div className="text-xs text-rose-500">{postError}</div> : null}
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setShowPostDialog(false)}>Cancel</Button>
+              <Button onClick={onPost} disabled={isPosting}>{isPosting ? 'Posting…' : 'Post'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {!showFullView && (
         <AnchoredProductCard
