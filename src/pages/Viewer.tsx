@@ -167,9 +167,41 @@ export function Viewer() {
       })
 
     return () => {
+      // Comprehensive cleanup when component unmounts
+      console.log('Viewer: starting comprehensive cleanup')
+      
+      // Call the splat script's cleanup function if available
+      if ((window as any).__splatMainCleanup) {
+        try {
+          (window as any).__splatMainCleanup()
+          console.log('Viewer: splat cleanup completed')
+        } catch (e) {
+          console.warn('Viewer: error during splat cleanup:', e)
+        }
+        delete (window as any).__splatMainCleanup
+      }
+      
       // Best-effort cleanup of elements the script may have toggled
       const spinner = document.getElementById('spinner')
       if (spinner) spinner.style.display = 'none'
+      
+      const progress = document.getElementById('progress')
+      if (progress) progress.style.width = '0%'
+      
+      const message = document.getElementById('message')
+      if (message) message.innerText = ''
+      
+      // Additional cleanup of any remaining elements
+      const trackers = document.querySelectorAll('[data-id]')
+      trackers.forEach(el => {
+        try {
+          el.remove()
+        } catch (e) {
+          console.warn('Viewer: error removing tracker:', e)
+        }
+      })
+      
+      console.log('Viewer: cleanup completed')
     }
   }, [])
 

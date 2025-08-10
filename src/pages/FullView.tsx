@@ -28,17 +28,45 @@ export function FullView() {
           : new URL(providedUrl).toString()
       } catch {}
 
-      ;(window as unknown as { __SPLAT_URL?: string }).__SPLAT_URL = effectiveUrl
+      ;(window as unknown as { __SPLAT_SINGLE_URL?: string }).__SPLAT_SINGLE_URL = effectiveUrl
       if (providedBase) {
-        ;(window as unknown as { __SPLAT_BASE?: string }).__SPLAT_BASE = providedBase
+        ;(window as unknown as { __SPLAT_SINGLE_BASE?: string }).__SPLAT_SINGLE_BASE = providedBase
       }
       ;(window as unknown as { __FORCE_SINGLE?: boolean }).__FORCE_SINGLE = true
 
       // Load the viewer once the DOM elements exist
-      import('../vendor/splat-main.js').catch((err) => {
+      import('../vendor/splat-single.js').catch((err) => {
         console.error('Failed to import splat viewer module (full view)', err)
       })
     } catch {}
+
+    return () => {
+      // Comprehensive cleanup when component unmounts
+      console.log('FullView: starting comprehensive cleanup')
+      
+      // Call the splat script's cleanup function if available
+      if ((window as any).__splatSingleCleanup) {
+        try {
+          (window as any).__splatSingleCleanup()
+          console.log('FullView: splat cleanup completed')
+        } catch (e) {
+          console.warn('FullView: error during splat cleanup:', e)
+        }
+        delete (window as any).__splatSingleCleanup
+      }
+      
+      // Best-effort cleanup of elements the script may have toggled
+      const spinner = document.getElementById('spinner')
+      if (spinner) spinner.style.display = 'none'
+      
+      const progress = document.getElementById('progress')
+      if (progress) progress.style.width = '0%'
+      
+      const message = document.getElementById('message')
+      if (message) message.innerText = ''
+      
+      console.log('FullView: cleanup completed')
+    }
   }, [])
 
   const hasUrl = useMemo(() => {
