@@ -753,17 +753,38 @@ async function main() {
     const urlStr = params.get("url") || "train.splat"
     const baseStr = baseOverride || baseFromQs || "https://huggingface.co/cakewalk/splat-data/resolve/main/"
     const url = override ? new URL(override) : new URL(urlStr, baseStr);
-    console.log('[splat] fetch url', url.toString())
-    const req = await fetch(url, {
-        mode: "cors", // no-cors, *cors, same-origin
-        credentials: "omit", // include, *same-origin, omit
-    });
-    console.log(req);
-    if (req.status != 200)
-        throw new Error(req.status + " Unable to load " + req.url);
+
+    // Decide whether to use multi-splat merge only (no single-stream fetch)
+    let useMulti = false;
+    const forceSingle = (params.get('single') === '1') || (typeof window !== 'undefined' && window.__FORCE_SINGLE === true)
+    let multiList = [];
+    try {
+        const listModEarly = await import('../config/multiSplat.json');
+        const listEarly = (listModEarly && (listModEarly.default || listModEarly)) || [];
+        if (!forceSingle && Array.isArray(listEarly) && listEarly.length > 0) {
+            useMulti = true;
+            multiList = listEarly;
+        }
+    } catch {}
 
     const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-    let splatData = new Uint8Array(Number(req.headers.get("content-length")) || 0);
+    let splatData = new Uint8Array(0);
+    let reader;
+    if (!useMulti) {
+        console.log('[splat] fetch url', url.toString())
+        const req = await fetch(url, {
+            mode: "cors", // no-cors, *cors, same-origin
+            credentials: "omit", // include, *same-origin, omit
+        });
+        console.log(req);
+        if (req.status != 200)
+            throw new Error(req.status + " Unable to load " + req.url);
+        splatData = new Uint8Array(Number(req.headers.get("content-length")) || 0);
+        if (!req.body || !req.body.getReader) {
+            throw new Error('[splat] Response body is not a readable stream')
+        }
+        reader = req.body.getReader();
+    }
 
     const downsample =
         splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
@@ -809,14 +830,28 @@ async function main() {
     const fps = document.getElementById("fps");
     const camid = document.getElementById("camid");
 
-    // Load points (hot-loadable via Vite HMR) and create trackers for each
+    // Load points from multiSplat.json (hot-loadable) and create trackers for each
     let points = []
+    let pointMeta = new Map()
     try {
-        const mod = await import('../config/points.json', { assert: { type: 'json' } })
-        points = mod.default || mod
+        const mod = await import('../config/multiSplat.json')
+        const list = (mod && (mod.default || mod)) || []
+        if (Array.isArray(list) && list.length > 0) {
+            const eps = 1e-6
+            points = list.map((item, idx) => ({
+                id: item.id || `p${idx}`,
+                x: Number(item.tx ?? item.x ?? 0),
+                y: Number(item.ty ?? item.y ?? 0),
+                z: Number(item.tz ?? item.z ?? 0),
+            })).filter(p => !(Math.abs(p.x) < eps && Math.abs(p.y) < eps && Math.abs(p.z) < eps))
+            // Build metadata map for quick lookup (e.g., source url)
+            pointMeta = new Map(list.map((item, idx) => [item.id || `p${idx}` , { url: item.url }]))
+        } else {
+            points = []
+        }
     } catch (e) {
-        console.warn('[splat] unable to load points.json, using a default (0,0,0)')
-        points = [{ id: 'p0', x: 0, y: 0, z: 0 }]
+        console.warn('[splat] unable to load multiSplat.json; no trackers will be shown')
+        points = []
     }
     const trackers = new Map()
     const ensureTracker = (id) => {
@@ -833,7 +868,8 @@ async function main() {
             const rect = el.getBoundingClientRect()
             const x = rect.left + rect.width / 2
             const y = rect.top + rect.height / 2
-            window.dispatchEvent(new CustomEvent('splat:tracker_click', { detail: { id, x, y } }))
+            const meta = pointMeta.get(id) || {}
+            window.dispatchEvent(new CustomEvent('splat:tracker_click', { detail: { id, x, y, url: meta.url } }))
         })
         document.body.appendChild(el)
         trackers.set(id, el)
@@ -1489,6 +1525,49 @@ async function main() {
 
     frame();
 
+    // If configured, merge multiple splat files and upload as a single buffer
+    if (useMulti) {
+        try {
+            const makeAbs = (u) => new URL(u, baseStr).toString();
+            const urls = multiList.map((item) => makeAbs(item.url));
+            const responses = await Promise.all(urls.map((u) => fetch(u, { mode: 'cors', credentials: 'omit' })));
+            const buffers = await Promise.all(responses.map((r) => r.arrayBuffer()))
+            const u8s = buffers.map((b) => new Uint8Array(b));
+            const alignedLengths = u8s.map((u, i) => {
+                const aligned = Math.floor(u.byteLength / rowLength) * rowLength;
+                if (aligned !== u.byteLength) {
+                    console.warn('[splat] trimming non-aligned splat bytes', { index: i, byteLength: u.byteLength, aligned });
+                }
+                return aligned;
+            });
+            const totalBytes = alignedLengths.reduce((acc, n) => acc + n, 0);
+            const merged = new ArrayBuffer(totalBytes);
+            const mergedU8 = new Uint8Array(merged);
+            const dv = new DataView(merged);
+            let offset = 0;
+            for (let i = 0; i < u8s.length; i++) {
+                const src = u8s[i];
+                const tx = Number(multiList[i].tx || multiList[i].x || 0);
+                const ty = Number(multiList[i].ty || multiList[i].y || 0);
+                const tz = Number(multiList[i].tz || multiList[i].z || 0);
+                const usable = alignedLengths[i];
+                if (usable === 0) continue;
+                mergedU8.set(src.subarray(0, usable), offset);
+                for (let j = 0; j < usable; j += rowLength) {
+                    const base = offset + j;
+                    dv.setFloat32(base + 0, dv.getFloat32(base + 0, true) + tx, true);
+                    dv.setFloat32(base + 4, dv.getFloat32(base + 4, true) + ty, true);
+                    dv.setFloat32(base + 8, dv.getFloat32(base + 8, true) + tz, true);
+                }
+                offset += usable;
+            }
+            splatData = new Uint8Array(merged);
+            worker.postMessage({ buffer: merged, vertexCount: Math.floor(merged.byteLength / rowLength) }, [merged]);
+        } catch (e) {
+            console.error('[splat] multiSplat merge failed; no scene loaded', e)
+        }
+    }
+
     // Multi-splat merge: if config exists, fetch and merge into one buffer, translating per object
     try {
         const listMod = await import('../config/multiSplat.json');
@@ -1499,7 +1578,15 @@ async function main() {
             const responses = await Promise.all(urls.map((u) => fetch(u, { mode: 'cors', credentials: 'omit' })));
             const buffers = await Promise.all(responses.map((r) => r.arrayBuffer()))
             const u8s = buffers.map((b) => new Uint8Array(b));
-            const totalBytes = u8s.reduce((acc, u) => acc + u.byteLength, 0);
+            // Enforce per-file alignment to rowLength (32 bytes). Trim any trailing remainder bytes.
+            const alignedLengths = u8s.map((u, i) => {
+                const aligned = Math.floor(u.byteLength / rowLength) * rowLength;
+                if (aligned !== u.byteLength) {
+                    console.warn('[splat] trimming non-aligned splat bytes', { index: i, byteLength: u.byteLength, aligned });
+                }
+                return aligned;
+            });
+            const totalBytes = alignedLengths.reduce((acc, n) => acc + n, 0);
             const merged = new ArrayBuffer(totalBytes);
             const mergedU8 = new Uint8Array(merged);
             const dv = new DataView(merged);
@@ -1509,14 +1596,16 @@ async function main() {
                 const tx = Number(list[i].tx || list[i].x || 0);
                 const ty = Number(list[i].ty || list[i].y || 0);
                 const tz = Number(list[i].tz || list[i].z || 0);
-                mergedU8.set(src, offset);
-                for (let j = 0; j < src.byteLength; j += rowLength) {
+                const usable = alignedLengths[i];
+                if (usable === 0) continue;
+                mergedU8.set(src.subarray(0, usable), offset);
+                for (let j = 0; j < usable; j += rowLength) {
                     const base = offset + j;
                     dv.setFloat32(base + 0, dv.getFloat32(base + 0, true) + tx, true);
                     dv.setFloat32(base + 4, dv.getFloat32(base + 4, true) + ty, true);
                     dv.setFloat32(base + 8, dv.getFloat32(base + 8, true) + tz, true);
                 }
-                offset += src.byteLength;
+                offset += usable;
             }
             splatData = new Uint8Array(merged);
             worker.postMessage({ buffer: merged, vertexCount: Math.floor(merged.byteLength / rowLength) }, [merged]);
@@ -1586,36 +1675,38 @@ async function main() {
         selectFile(e.dataTransfer.files[0]);
     });
 
-    let bytesRead = 0;
-    let lastVertexCount = -1;
-    let stopLoading = false;
+    if (!useMulti) {
+        let bytesRead = 0;
+        let lastVertexCount = -1;
+        let stopLoading = false;
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done || stopLoading) break;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done || stopLoading) break;
 
-        splatData.set(value, bytesRead);
-        bytesRead += value.length;
+            splatData.set(value, bytesRead);
+            bytesRead += value.length;
 
-        if (vertexCount > lastVertexCount) {
-            if (!isPly(splatData)) {
+            if (vertexCount > lastVertexCount) {
+                if (!isPly(splatData)) {
+                    worker.postMessage({
+                        buffer: splatData.buffer,
+                        vertexCount: Math.floor(bytesRead / rowLength),
+                    });
+                }
+                lastVertexCount = vertexCount;
+            }
+        }
+        if (!stopLoading) {
+            if (isPly(splatData)) {
+                // ply file magic header means it should be handled differently
+                worker.postMessage({ ply: splatData.buffer, save: false });
+            } else {
                 worker.postMessage({
                     buffer: splatData.buffer,
                     vertexCount: Math.floor(bytesRead / rowLength),
                 });
             }
-            lastVertexCount = vertexCount;
-        }
-    }
-    if (!stopLoading) {
-        if (isPly(splatData)) {
-            // ply file magic header means it should be handled differently
-            worker.postMessage({ ply: splatData.buffer, save: false });
-        } else {
-            worker.postMessage({
-                buffer: splatData.buffer,
-                vertexCount: Math.floor(bytesRead / rowLength),
-            });
         }
     }
 }

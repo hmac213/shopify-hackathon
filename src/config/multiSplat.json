@@ -1,5 +1,8 @@
 [
   { "url": "gs_table.splat", "tx": 0,   "ty": 0,   "tz": 0 },
-  { "url": "chair_trellis.splat", "tx": 1.0, "ty": 0.0, "tz": 0.0 }
+  { "url": "chair_trellis.splat", "tx": 1.0, "ty": 0.5, "tz": 0.2 },
+  { "url": "labubu.splat", "tx": -0.9, "ty": -0.4, "tz": 0.3 },
+  { "url": "toycar.splat", "tx": 0.1, "ty": 0.0, "tz": 0.1},
+  { "url": "truck.splat", "tx": -0.5, "ty": 0.0, "tz": -0.5}
 ]
 

@@ -1,8 +1,8 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {SPLAT_PLY_URL, BASE_PLY_URL} from '../config/viewer'
-import {Button, ProductCard, useProductMedia, useShopCartActions, QuantitySelector, useShare, useDeeplink} from '@shopify/shop-minis-react'
+import {Button, ProductCard, useShopCartActions, QuantitySelector, useShare, useDeeplink} from '@shopify/shop-minis-react'
 import {X as CloseIcon} from 'lucide-react'
-import {useLocation} from 'react-router'
+import {useLocation, useNavigate} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
 
 type LogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
@@ -112,9 +112,11 @@ export function Viewer() {
   const [showDebug, setShowDebug] = useState(false)
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
   const [anchor, setAnchor] = useState<{x: number; y: number} | null>(null)
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [activeProductId, setActiveProductId] = useState<string | null>(null)
   const [showFullView, setShowFullView] = useState(false)
   const routeLocation = useLocation() as {state?: {category?: string; surprise?: boolean; productIds?: string[]}}
+  const navigate = useNavigate()
   const {queryParams} = useDeeplink()
   const viewerPool = useCategoryProductsForViewer()
 
@@ -206,11 +208,16 @@ export function Viewer() {
   // Track point click and live screen positions for anchoring
   useEffect(() => {
     const onClick = (e: Event) => {
-      const detail = (e as CustomEvent).detail as {id?: string; x?: number; y?: number} | undefined
+      const detail = (e as CustomEvent).detail as {id?: string; x?: number; y?: number; url?: string} | undefined
       if (!detail) return
       setSelectedPointId(detail.id ?? null)
       if (typeof detail.x === 'number' && typeof detail.y === 'number') {
         setAnchor({x: detail.x, y: detail.y})
+      }
+      if (typeof detail?.url === 'string' && detail.url.length > 0) {
+        setSourceUrl(detail.url)
+      } else {
+        setSourceUrl(null)
       }
     }
     const onPositions = (e: Event) => {
@@ -270,14 +277,20 @@ export function Viewer() {
         <AnchoredProductCard
           anchor={anchor}
           selectedPointId={selectedPointId}
-          onClose={() => { setSelectedPointId(null); setAnchor(null); setActiveProductId(null) }}
-          onFullView={(productId) => { setActiveProductId(productId); setShowFullView(true); setSelectedPointId(null); setAnchor(null) }}
+          sourceUrl={sourceUrl}
+          onClose={() => { setSelectedPointId(null); setAnchor(null); setActiveProductId(null); setSourceUrl(null) }}
+          onFullView={(productId) => {
+            setActiveProductId(productId)
+            setShowFullView(false)
+            const params = new URLSearchParams({ url: sourceUrl || '' })
+            navigate(`/full?${params.toString()}`, { replace: false })
+            setSelectedPointId(null)
+            setAnchor(null)
+          }}
         />
       )}
 
-      {showFullView && activeProductId ? (
-        <FullProductView productId={activeProductId} onClose={() => setShowFullView(false)} />
-      ) : null}
+      {/* Full view moved to separate page */}
 
       {showDebug && (
         <div className="absolute inset-0 z-50 bg-black/80 text-white flex flex-col">
@@ -330,11 +343,12 @@ export function Viewer() {
 interface AnchoredProductCardProps {
   anchor: {x: number; y: number} | null
   selectedPointId: string | null
+  sourceUrl: string | null
   onClose: () => void
   onFullView: (productId: string) => void
 }
 
-function AnchoredProductCard({anchor, selectedPointId, onClose, onFullView}: AnchoredProductCardProps) {
+function AnchoredProductCard({anchor, selectedPointId, sourceUrl, onClose, onFullView}: AnchoredProductCardProps) {
   // Map first four products to four points
   const pool = useCategoryProductsForViewer()
   const mapped = useMemo(() => mapProductsToPoints(pool), [pool])
@@ -348,15 +362,18 @@ function AnchoredProductCard({anchor, selectedPointId, onClose, onFullView}: Anc
 
   return (
     <div style={style} className="min-w-[240px] max-w-[84vw]">
-      <SdkProductCard product={product} onClose={onClose} onFullView={() => onFullView(product.id)} />
+      <SdkProductCard product={product} sourceUrl={sourceUrl} onClose={onClose} onFullView={() => onFullView(product.id)} />
     </div>
   )
 }
 
-function SdkProductCard({product, onClose, onFullView}: {product: any; onClose: () => void; onFullView: () => void}) {
+function SdkProductCard({product, sourceUrl, onClose, onFullView}: {product: any; sourceUrl: string | null; onClose: () => void; onFullView: () => void}) {
   return (
     <div className="rounded-xl shadow-2xl bg-white border border-black/5 p-3">
       <ProductCard product={product} variant="default" />
+      {sourceUrl ? (
+        <div className="mt-2 text-[10px] text-neutral-500 break-all">{sourceUrl}</div>
+      ) : null}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <Button className="w-full" onClick={onFullView}>Full View</Button>
         <Button variant="secondary" className="w-full" onClick={onClose}>Dismiss</Button>
@@ -365,10 +382,20 @@ function SdkProductCard({product, onClose, onFullView}: {product: any; onClose: 
   )
 }
 
-function FullProductView({productId, onClose}: {productId: string; onClose: () => void}) {
-  const {media} = useProductMedia({ id: productId, first: 10 }) as {media: any[] | null}
-  const model = useMemo(() => (media || []).find((m: any) => m.mediaContentType === 'MODEL_3D' || m.contentType === 'MODEL_3D') ?? null, [media])
-  const modelUrl: string | null = model?.sources?.[0]?.url || model?.url || null
+function FullProductView({productId, sourceUrl, onClose}: {productId: string; sourceUrl: string | null; onClose: () => void}) {
+
+  function InlineSplatCanvas({sourceUrl}: {sourceUrl: string | null}) {
+    const ref = useRef<HTMLCanvasElement | null>(null)
+    useEffect(() => {
+      let renderer: {dispose: () => void} | null = null
+      if (ref.current && sourceUrl) {
+        createSingleSplatRenderer(ref.current, sourceUrl).then(r => { renderer = r }).catch(() => {})
+      }
+      return () => { try { renderer?.dispose() } catch {} }
+    }, [sourceUrl])
+    if (!sourceUrl) return <div className="absolute inset-0 grid place-items-center text-gray-500 text-sm">No 3D model available</div>
+    return <canvas ref={ref} className="absolute inset-0 w-full h-full" />
+  }
 
   return (
     <div className="absolute inset-0 z-[70] bg-white flex flex-col">
@@ -383,18 +410,14 @@ function FullProductView({productId, onClose}: {productId: string; onClose: () =
          >
            <CloseIcon />
          </Button>
-        {modelUrl ? (
-          <model-viewer src={modelUrl} ar ar-modes="webxr scene-viewer quick-look" camera-controls style={{width: '100%', height: '100%', background: 'transparent'}}></model-viewer>
-        ) : (
-          <div className="absolute inset-0 grid place-items-center text-gray-500 text-sm">No 3D model available</div>
-        )}
+        <InlineSplatCanvas sourceUrl={sourceUrl} />
       </div>
-      <ViewerProductDetails productId={productId} />
+      <ViewerProductDetails productId={productId} sourceUrl={sourceUrl} />
     </div>
   )
 }
 
-function ViewerProductDetails({productId}: {productId: string}) {
+function ViewerProductDetails({productId, sourceUrl}: {productId: string; sourceUrl: string | null}) {
   // Reuse category pool to locate product details without another fetch
   const pool = useCategoryProductsForViewer()
   const product = pool.find((p: any) => p.id === productId)
@@ -421,7 +444,7 @@ function ViewerProductDetails({productId}: {productId: string}) {
         <>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-base font-semibold truncate">{product.title}</div>
+              <div className="text-base font-semibold truncate">{sourceUrl || product.title}</div>
               {(product as any).shop?.name ? (
                 <div className="text-xs text-gray-500 truncate mt-0.5">{(product as any).shop.name}</div>
               ) : null}
