@@ -8,4 +8,10 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@shopify/shop-minis-react'],
   },
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
+  },
 })
