@@ -162,8 +162,13 @@ export function Viewer() {
       <div id="message" className="absolute inset-x-0 bottom-4 z-30 mx-4 text-center text-rose-300 text-xs" />
 
       <div className="absolute bottom-4 right-4 z-40">
-        <Button size="sm" onClick={() => setShowDebug(true)}>Debug</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('splat:reset_view'))}>Center</Button>
+          <Button size="sm" onClick={() => setShowDebug(true)}>Debug</Button>
+        </div>
       </div>
+
+      <ProductPanel />
 
       {showDebug && (
         <div className="absolute inset-0 z-50 bg-black/80 text-white flex flex-col">
@@ -209,6 +214,110 @@ export function Viewer() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function ProductPanel() {
+  const [open, setOpen] = useState(false)
+  const [anchor, setAnchor] = useState<{x: number; y: number} | null>(null)
+  useEffect(() => {
+    const onClick = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {x?: number; y?: number} | undefined
+      if (detail?.x != null && detail?.y != null) setAnchor({x: detail.x, y: detail.y})
+      setOpen(true)
+    }
+    window.addEventListener('splat:tracker_click', onClick as EventListener)
+    return () => window.removeEventListener('splat:tracker_click', onClick as EventListener)
+  }, [])
+
+  // Subscribe to live screen positions of points to keep the panel stuck to the target
+  useEffect(() => {
+    const onPositions = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { positions: Record<string, {x?: number; y?: number; visible?: boolean}> }
+      if (!open || !anchor) return
+      // find nearest point by distance to current anchor and follow it
+      let bestId: string | null = null
+      let bestDist = Infinity
+      for (const [id, p] of Object.entries(detail.positions || {})) {
+        if (p?.visible && typeof p.x === 'number' && typeof p.y === 'number') {
+          const dx = (p.x - anchor.x)
+          const dy = (p.y - anchor.y)
+          const d = dx*dx + dy*dy
+          if (d < bestDist) { bestDist = d; bestId = id }
+        }
+      }
+      if (bestId) {
+        const p = detail.positions[bestId]!
+        setAnchor({ x: p.x!, y: p.y! })
+      }
+    }
+    window.addEventListener('splat:points_screen', onPositions as EventListener)
+    return () => window.removeEventListener('splat:points_screen', onPositions as EventListener)
+  }, [open, anchor])
+
+  if (!open) return null
+  const close = () => setOpen(false)
+
+  const product = {
+    title: 'Sample Sneaker',
+    price: '$129.00',
+    vendor: 'Acme Co.',
+    image:
+      'https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=800&auto=format&fit=crop',
+  }
+
+  // Position near anchor if provided; otherwise default to bottom sheet
+  if (anchor) {
+    const style: React.CSSProperties = {
+      position: 'absolute',
+      left: Math.min(Math.max(anchor.x, 12), window.innerWidth - 12) + 'px',
+      top: Math.min(Math.max(anchor.y - 8, 12), window.innerHeight - 12) + 'px',
+      transform: 'translate(-50%, -100%)',
+      zIndex: 60,
+    }
+    return (
+      <div style={style} className="min-w-[240px] max-w-[80vw] rounded-xl shadow-2xl bg-white p-4 space-y-3 border border-black/5">
+        <div className="flex items-center justify-between">
+          <div className="text-base font-semibold">Product</div>
+          <Button size="sm" onClick={() => setOpen(false)}>Close</Button>
+        </div>
+        <div className="flex gap-3 items-center">
+          <img src={product.image} alt="" className="w-14 h-14 rounded-md object-cover" />
+          <div className="flex-1">
+            <div className="text-sm font-medium">{product.title}</div>
+            <div className="text-[11px] text-neutral-500">{product.vendor}</div>
+          </div>
+          <div className="text-sm font-semibold">{product.price}</div>
+        </div>
+        <div className="flex gap-2">
+          <Button className="flex-1">Add</Button>
+          <Button variant="secondary" className="flex-1" onClick={() => setOpen(false)}>Dismiss</Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="absolute inset-0 z-50 bg-black/60 flex items-end">
+      <div className="w-full rounded-t-2xl bg-white p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-base font-semibold">Product</div>
+          <Button size="sm" onClick={close}>Close</Button>
+        </div>
+        <div className="flex gap-3 items-center">
+          <img src={product.image} alt="" className="w-16 h-16 rounded-md object-cover" />
+          <div className="flex-1">
+            <div className="text-sm font-medium">{product.title}</div>
+            <div className="text-xs text-neutral-500">{product.vendor}</div>
+          </div>
+          <div className="text-sm font-semibold">{product.price}</div>
+        </div>
+        <div className="flex gap-2">
+          <Button className="flex-1">Add to cart</Button>
+          <Button variant="secondary" className="flex-1" onClick={close}>Dismiss</Button>
+        </div>
+      </div>
     </div>
   )
 }
