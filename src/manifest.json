@@ -4,6 +4,9 @@
   "privacy_policy_url": "https://example.com/privacy",
   "terms_url": "https://example.com/terms",
   "trusted_domains": [
-    "tmpfiles.org"
+    "tmpfiles.org",
+    "cdn-lfs.hf.co",
+    "antimatter15.com",
+    "huggingface.co"
   ]
 }

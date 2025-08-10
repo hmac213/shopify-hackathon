@@ -1,303 +1,214 @@
-import {useEffect, useRef, useState, useMemo} from 'react'
-import * as THREE from 'three'
-import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js'
-import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d'
-import {MODEL_GLB_URL, SPLAT_PLY_URL} from '../config/viewer'
-import {Button, Card, CardContent, CardHeader, CardTitle} from '@shopify/shop-minis-react'
-import {useLocation} from 'react-router'
-import {useCategoryProducts} from '../hooks/useCategoryProducts'
+import {useEffect, useMemo, useRef, useState} from 'react'
+import {Button} from '@shopify/shop-minis-react'
+import {SPLAT_PLY_URL} from '../config/viewer'
 
-function formatMoneyDisplay(maybeMoney: any): string | null {
-  const money = maybeMoney ?? null
-  const candidate = money && typeof money === 'object' ? money : null
-  const amountStr = candidate?.amount ?? null
-  const currency = candidate?.currencyCode ?? candidate?.currency ?? null
-  if (amountStr && currency) {
-    const amount = Number(amountStr)
-    if (!Number.isNaN(amount)) {
-      try {
-        return new Intl.NumberFormat(undefined, {style: 'currency', currency}).format(amount)
-      } catch {
-        return `${amountStr} ${currency}`
-      }
-    }
-    return `${amountStr} ${currency}`
+type LogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
+
+type LogEntry = {
+  id: number
+  level: LogLevel
+  args: unknown[]
+  timestamp: number
+  source?: 'console' | 'error' | 'rejection'
+}
+
+function formatArgs(args: unknown[]): string {
+  try {
+    return args
+      .map((a) => {
+        if (typeof a === 'string') return a
+        if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ''}`
+        return JSON.stringify(a, (_k, v) => (v === undefined ? 'undefined' : v), 2)
+      })
+      .join(' ')
+  } catch {
+    return args.map((a) => String(a)).join(' ')
   }
-  return null
 }
 
-function extractProductPrice(product: any): string | null {
-  const direct = formatMoneyDisplay(product?.price)
-  if (direct) return direct
-  const rangeMin = formatMoneyDisplay(product?.priceRange?.minVariantPrice)
-  if (rangeMin) return rangeMin
-  const firstVariant = formatMoneyDisplay(product?.variants?.[0]?.price)
-  if (firstVariant) return firstVariant
-  return null
-}
-
-function ModelPreview({url}: {url: string}) {
-  const containerRef = useRef<HTMLDivElement>(null)
+function useInAppConsole() {
+  const [entries, setEntries] = useState<LogEntry[]>([])
+  const idCounter = useRef(1)
+  const originals = useRef<Partial<Record<LogLevel, (...args: unknown[]) => void>>>({})
 
   useEffect(() => {
-    if (!containerRef.current) return
-
-    const container = containerRef.current
-    const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true})
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.setSize(container.clientWidth, container.clientHeight)
-    renderer.outputColorSpace = THREE.SRGBColorSpace
-    container.appendChild(renderer.domElement)
-
-    const scene = new THREE.Scene()
-
-    const camera = new THREE.PerspectiveCamera(
-      60,
-      container.clientWidth / container.clientHeight,
-      0.01,
-      2000
-    )
-    camera.position.set(0.8, 0.8, 1.2)
-
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.target.set(0, 0.5, 0)
-    controls.enableDamping = true
-
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x222233, 1.0)
-    scene.add(hemi)
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0)
-    dir.position.set(3, 5, 2)
-    dir.castShadow = false
-    scene.add(dir)
-
-    const loader = new GLTFLoader()
-    let disposed = false
-
-    loader
-      .loadAsync(url)
-      .then(gltf => {
-        if (disposed) return
-        const model = gltf.scene
-        model.traverse(obj => {
-          const mesh = obj as THREE.Mesh
-          if ((mesh as any).isMesh) {
-            mesh.castShadow = false
-            mesh.receiveShadow = true
-          }
-        })
-        model.position.set(0, 0, 0)
-        model.scale.setScalar(1)
-        scene.add(model)
-
-        const bbox = new THREE.Box3().setFromObject(model)
-        if (!bbox.isEmpty()) {
-          const center = bbox.getCenter(new THREE.Vector3())
-          controls.target.copy(center)
-          controls.update()
-        }
-      })
-      .catch(() => {})
-
-    function onResize() {
-      if (!container) return
-      const {clientWidth, clientHeight} = container
-      camera.aspect = clientWidth / clientHeight
-      camera.updateProjectionMatrix()
-      renderer.setSize(clientWidth, clientHeight)
-    }
-
-    const resizeObserver = new ResizeObserver(onResize)
-    resizeObserver.observe(container)
-
-    const loop = () => {
-      if (disposed) return
-      controls.update()
-      renderer.render(scene, camera)
-      requestAnimationFrame(loop)
-    }
-    loop()
-
-    return () => {
-      disposed = true
-      resizeObserver.disconnect()
-      renderer.dispose()
-      if (renderer.domElement && renderer.domElement.parentElement === container) {
-        container.removeChild(renderer.domElement)
+    const levels: LogLevel[] = ['log', 'info', 'warn', 'error', 'debug']
+    for (const lvl of levels) {
+      originals.current[lvl] = console[lvl]
+      console[lvl] = (...args: unknown[]) => {
+        setEntries((prev) => [
+          ...prev,
+          {id: idCounter.current++, level: lvl, args, timestamp: Date.now(), source: 'console'},
+        ])
+        originals.current[lvl]?.(...args)
       }
     }
-  }, [url])
 
-  return <div ref={containerRef} className="w-full h-64 rounded-lg overflow-hidden bg-black/40" />
+    const onError = (ev: ErrorEvent) => {
+      setEntries((prev) => [
+        ...prev,
+        {
+          id: idCounter.current++,
+          level: 'error',
+          args: [ev.message, ev.error?.stack ?? ev.filename + ':' + ev.lineno + ':' + ev.colno],
+          timestamp: Date.now(),
+          source: 'error',
+        },
+      ])
+    }
+    const onRejection = (ev: PromiseRejectionEvent) => {
+      setEntries((prev) => [
+        ...prev,
+        {
+          id: idCounter.current++,
+          level: 'error',
+          args: ['UnhandledRejection', ev.reason],
+          timestamp: Date.now(),
+          source: 'rejection',
+        },
+      ])
+    }
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+
+    return () => {
+      for (const lvl of levels) {
+        if (originals.current[lvl]) {
+          console[lvl] = originals.current[lvl] as (...args: unknown[]) => void
+        }
+      }
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [])
+
+  const clear = () => setEntries([])
+
+  const asText = useMemo(() => {
+    return entries
+      .map((e) => {
+        const time = new Date(e.timestamp).toISOString()
+        return `[${time}] ${e.level.toUpperCase()}: ${formatArgs(e.args)}`
+      })
+      .join('\n')
+  }, [entries])
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(asText)
+    } catch {
+      // ignore
+    }
+  }
+
+  return {entries, clear, copy}
 }
 
 export function Viewer() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [showOverlay, setShowOverlay] = useState(false)
+  const {entries, clear, copy} = useInAppConsole()
+  const [showDebug, setShowDebug] = useState(false)
 
-  const location = useLocation() as {state?: {category?: string; surprise?: boolean}}
-  const category = location?.state?.category ?? ''
-  const surprise = !!location?.state?.surprise
-  const {products} = useCategoryProducts({category, surprise, first: 20})
-  const firstProduct = useMemo(() => products?.[0], [products])
-  const firstPrice = useMemo(() => extractProductPrice(firstProduct), [firstProduct])
+  const envInfo = useMemo(
+    () => ({
+      href: typeof window !== 'undefined' ? window.location.href : '',
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      language: typeof navigator !== 'undefined' ? navigator.language : '',
+      viewport:
+        typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : '',
+    }),
+    []
+  )
 
-  const missingUrls = !SPLAT_PLY_URL || !MODEL_GLB_URL
+  const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!containerRef.current) return
-    if (missingUrls) return
+    // Ensure URL param is set so the vendored script picks it up
+    try {
+      const params = new URLSearchParams(window.location.search)
+      if (SPLAT_PLY_URL) params.set('url', SPLAT_PLY_URL)
+      const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`
+      console.info('Viewer: setting url param for splat', {SPLAT_PLY_URL, next})
+      history.replaceState({}, '', next)
+    } catch {}
 
-    const container = containerRef.current
-    const renderer = new THREE.WebGLRenderer({antialias: true})
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.setSize(container.clientWidth, container.clientHeight)
-    renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    container.appendChild(renderer.domElement)
-
-    const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x0c0c0c)
-
-    const camera = new THREE.PerspectiveCamera(
-      60,
-      container.clientWidth / container.clientHeight,
-      0.01,
-      5000
-    )
-    camera.position.set(1.5, 1.0, 2.0)
-
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.target.set(0, 0.6, 0)
-    controls.enableDamping = true
-
-    const gsViewer = new GaussianSplats3D.Viewer({
-      selfDrivenMode: false,
-      threeScene: scene,
-      renderer,
-      camera,
-      useBuiltInControls: false,
-      dynamicScene: true,
-    })
-
-    let disposed = false
-
-    async function loadAssets() {
-      try {
-        await gsViewer.addSplatScene(SPLAT_PLY_URL, {
-          opacity: 1.0,
-          gamma: 1.0,
-          maxGaussians: 2_000_000,
-          rotation: [1, 0, 0, 0],
-        })
-      } catch (e) {
-        console.warn('Splat asset load failed:', e)
-      }
-
-      try {
-        const gltfLoader = new GLTFLoader()
-        const gltf = await gltfLoader.loadAsync(MODEL_GLB_URL)
-        const meshRoot = gltf.scene
-        meshRoot.traverse((obj: THREE.Object3D) => {
-          if ((obj as THREE.Mesh).isMesh) {
-            const mesh = obj as THREE.Mesh
-            mesh.castShadow = false
-            mesh.receiveShadow = true
-          }
-        })
-        meshRoot.position.set(0, 0, 0)
-        meshRoot.scale.setScalar(1)
-        scene.add(meshRoot)
-
-        const bbox = new THREE.Box3().setFromObject(meshRoot)
-        if (bbox.isEmpty() === false) {
-          const size = bbox.getSize(new THREE.Vector3()).length()
-          const center = bbox.getCenter(new THREE.Vector3())
-          const fitOffset = 1.6
-          const distance = (size / (2 * Math.tan((Math.PI * camera.fov) / 360))) * fitOffset
-          const dir = controls.target.clone().sub(camera.position).normalize().multiplyScalar(-1)
-          camera.position.copy(dir.multiplyScalar(distance).add(center))
-          controls.maxDistance = distance * 10
-          controls.target.copy(center)
-          controls.update()
-        }
-      } catch (e) {
-        console.warn('GLB asset load failed:', e)
-      }
-    }
-
-    loadAssets()
-
-    function onResize() {
-      if (!container) return
-      const {clientWidth, clientHeight} = container
-      camera.aspect = clientWidth / clientHeight
-      camera.updateProjectionMatrix()
-      renderer.setSize(clientWidth, clientHeight)
-    }
-    const resizeObserver = new ResizeObserver(onResize)
-    resizeObserver.observe(container)
-
-    renderer.setAnimationLoop(() => {
-      if (disposed) return
-      controls.update()
-      gsViewer.update()
-      gsViewer.render()
-    })
+    // Dynamically import the vendored module once the DOM is ready
+    // Avoid running twice under HMR by setting a global flag
+    ;(window as unknown as { __SPLAT_URL?: string }).__SPLAT_URL = SPLAT_PLY_URL
+    import('../vendor/splat-main.js')
+      .catch((err) => {
+        console.error('Failed to import splat viewer module', err)
+      })
 
     return () => {
-      disposed = true
-      resizeObserver.disconnect()
-      renderer.setAnimationLoop(null as any)
-      renderer.dispose()
-      container.removeChild(renderer.domElement)
+      // Best-effort cleanup of elements the script may have toggled
+      const spinner = document.getElementById('spinner')
+      if (spinner) spinner.style.display = 'none'
     }
-  }, [missingUrls])
-
-  if (missingUrls) {
-    return (
-      <div className="min-h-dvh w-dvw flex flex-col items-center justify-center p-6 text-center">
-        <h2 className="text-lg font-semibold">Set your CDN asset URLs</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          Update <code>src/config/viewer.ts</code> with <code>SPLAT_PLY_URL</code> and <code>MODEL_GLB_URL</code>.
-        </p>
-      </div>
-    )
-  }
+  }, [])
 
   return (
-    <div className="min-h-dvh w-dvw relative">
-      <div ref={containerRef} className="min-h-dvh w-dvw" />
+    <div ref={hostRef} className="min-h-dvh w-dvw relative bg-black">
+      <canvas id="canvas" className="absolute inset-0 w-full h-full" />
+      <div className="absolute left-0 right-0 top-0 z-30 p-2 flex items-center justify-between text-white text-xs">
+        <div id="camid" className="px-2 py-1 rounded bg-black/40" />
+        <div id="fps" className="px-2 py-1 rounded bg-black/40" />
+      </div>
+      <div id="spinner" className="absolute inset-0 z-20 grid place-items-center bg-black/40">
+        <div className="w-8 h-8 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+      </div>
+      <div className="absolute left-0 right-0 bottom-0 z-30 h-1 bg-white/10">
+        <div id="progress" className="h-full bg-white/60" style={{width: 0}} />
+      </div>
+      <div id="message" className="absolute inset-x-0 bottom-4 z-30 mx-4 text-center text-rose-300 text-xs" />
 
-      <div className="absolute inset-x-0 bottom-0 pb-8 pt-6 flex justify-center bg-gradient-to-t from-black/50 to-transparent">
-        <Button size="lg" onClick={() => setShowOverlay(true)}>View</Button>
+      <div className="absolute bottom-4 right-4 z-40">
+        <Button size="sm" onClick={() => setShowDebug(true)}>Debug</Button>
       </div>
 
-      {showOverlay && (
-        <div className="absolute inset-0 z-10 bg-black/70 backdrop-blur-sm flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="text-white text-base font-medium">Product</div>
-            <Button variant="secondary" onClick={() => setShowOverlay(false)}>✕</Button>
+      {showDebug && (
+        <div className="absolute inset-0 z-50 bg-black/80 text-white flex flex-col">
+          <div className="p-3 flex items-center justify-between gap-2 border-b border-white/10">
+            <div className="text-sm font-medium">Debug Console</div>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={clear}>Clear</Button>
+              <Button variant="secondary" size="sm" onClick={copy}>Copy</Button>
+              <Button size="sm" onClick={() => setShowDebug(false)}>Close</Button>
+            </div>
           </div>
 
-          <div className="px-4 pb-4 space-y-4 overflow-auto">
-            <ModelPreview url={MODEL_GLB_URL} />
+          <div className="px-3 py-2 text-[11px] text-white/80 space-y-1 border-b border-white/10">
+            <div>URL: {envInfo.href}</div>
+            <div>UA: {envInfo.userAgent}</div>
+            <div>Lang: {envInfo.language} • Viewport: {envInfo.viewport}</div>
+          </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>{(firstProduct as any)?.title ?? (firstProduct as any)?.name ?? 'Selected Product'}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-sm text-muted-foreground space-y-1">
-                  <div>ID: {(firstProduct as any)?.id ?? '—'}</div>
-                  {Boolean((firstProduct as any)?.vendor) && <div>Vendor: {(firstProduct as any)?.vendor}</div>}
-                  {firstPrice && <div>Price: {firstPrice}</div>}
-                </div>
-              </CardContent>
-            </Card>
+          <div className="flex-1 overflow-auto p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words">
+            {entries.length === 0 ? (
+              <div className="text-white/60">No logs yet. Interact with the app to see logs.</div>
+            ) : (
+              entries.map((e) => {
+                const time = new Date(e.timestamp).toLocaleTimeString()
+                const text = formatArgs(e.args)
+                const color =
+                  e.level === 'error'
+                    ? 'text-rose-300'
+                    : e.level === 'warn'
+                    ? 'text-amber-300'
+                    : e.level === 'info'
+                    ? 'text-sky-300'
+                    : e.level === 'debug'
+                    ? 'text-emerald-300'
+                    : 'text-white'
+                return (
+                  <div key={e.id} className={color}>
+                    [{time}] {e.level.toUpperCase()}: {text}
+                  </div>
+                )
+              })
+            )}
           </div>
         </div>
       )}
     </div>
   )
-} 
+}
