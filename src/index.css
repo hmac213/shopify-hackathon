@@ -1,1 +1,31 @@
 @import "@shopify/shop-minis-react/styles";
+
+@keyframes flipY {
+  0% { transform: rotateY(0deg); }
+  50% { transform: rotateY(90deg) scale(1.02); filter: blur(1px); }
+  100% { transform: rotateY(0deg); }
+}
+
+@utility animate-flip-y {
+  animation: flipY 0.25s linear infinite;
+}
+
+@keyframes slotSweep {
+  0% {
+    transform: translateX(40%) rotateY(-55deg) translateZ(0px) scale(0.88);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateX(0%) rotateY(0deg) translateZ(40px) scale(1.12);
+    text-shadow: 0 10px 24px rgba(244, 114, 182, 0.45), 0 2px 0 rgba(255,255,255,0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-40%) rotateY(55deg) translateZ(0px) scale(0.88);
+    opacity: 0.9;
+  }
+}
+
+@utility animate-slot-sweep {
+  animation: slotSweep 0.28s linear infinite;
+}
