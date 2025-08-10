@@ -77,6 +77,26 @@ export function Loading() {
 
   return (
     <div className="min-h-dvh w-dvw flex flex-col bg-gradient-to-b from-pink-100 via-rose-50 to-amber-50">
+      {/* CSS for bouncing GIF animation */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @keyframes bounceGif {
+            0% { transform: scale(1) translateY(0px); }
+            25% { transform: scale(1.05) translateY(-8px); }
+            50% { transform: scale(1.1) translateY(-12px); }
+            75% { transform: scale(1.05) translateY(-8px); }
+            100% { transform: scale(1) translateY(0px); }
+          }
+          .bounce-gif {
+            animation: bounceGif 2s ease-in-out infinite;
+            animation-play-state: running;
+          }
+          .bounce-gif-paused {
+            animation-play-state: paused;
+          }
+        `
+      }} />
+      
       <div className="flex-1 px-5 pt-16 pb-8 flex flex-col items-center justify-center text-center">
         <div className="select-none mb-8">
           <h1
@@ -110,13 +130,13 @@ export function Loading() {
                 </div>
               </div>
               
-              {/* GIF on the right with fade animation */}
+              {/* GIF on the right with bounce animation */}
               <div className={`flex-shrink-0 transition-opacity duration-300 ease-in-out ${showRight ? 'opacity-100' : 'opacity-0'}`}>
                 <div className="relative overflow-hidden rounded-2xl border border-rose-200/50 bg-white/80 backdrop-blur-sm shadow-lg p-4">
                   <img 
                     src="https://raw.githubusercontent.com/bobbykabob/shopify-hackathon-cdn/main/chair-video-unscreen.gif"
                     alt="Chair Animation"
-                    className="w-32 h-32 object-contain"
+                    className={`w-32 h-32 object-contain bounce-gif ${showRight ? '' : 'bounce-gif-paused'}`}
                     onLoad={handleGifLoad}
                     onError={handleGifError}
                   />
