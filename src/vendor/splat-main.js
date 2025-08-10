@@ -731,6 +731,9 @@ void main () {
 
 `.trim();
 
+// Global speed scaler to slow down user navigation
+const USER_SPEED_SCALE = 0.3; // 30% of original speed
+
 let defaultViewMatrix = [
     0.47, 0.04, 0.88, 0, -0.11, 0.99, 0.02, 0, -0.88, -0.11, 0.47, 0, 0.07,
     0.03, 6.55, 1,
@@ -808,6 +811,36 @@ async function main() {
     }
     const fps = document.getElementById("fps");
     const camid = document.getElementById("camid");
+
+    // Load points (hot-loadable via Vite HMR) and create trackers for each
+    let points = []
+    try {
+        const mod = await import('../config/points.json', { assert: { type: 'json' } })
+        points = mod.default || mod
+    } catch (e) {
+        console.warn('[splat] unable to load points.json, using a default (0,0,0)')
+        points = [{ id: 'p0', x: 0, y: 0, z: 0 }]
+    }
+    const trackers = new Map()
+    const ensureTracker = (id) => {
+        if (trackers.has(id)) return trackers.get(id)
+        const el = document.createElement('div')
+        el.dataset.id = id
+        Object.assign(el.style, {
+            position: 'absolute', width: '22px', height: '22px', borderRadius: '9999px',
+            border: '2px solid rgba(255,255,255,0.9)', background: 'rgba(255,255,255,0.12)',
+            left: '0px', top: '0px', transform: 'translate(-50%, -50%)', zIndex: 25, cursor: 'pointer', display: 'none'
+        })
+        el.addEventListener('click', () => {
+            const rect = el.getBoundingClientRect()
+            const x = rect.left + rect.width / 2
+            const y = rect.top + rect.height / 2
+            window.dispatchEvent(new CustomEvent('splat:tracker_click', { detail: { id, x, y } }))
+        })
+        document.body.appendChild(el)
+        trackers.set(id, el)
+        return el
+    }
 
     let projectionMatrix;
 
@@ -993,6 +1026,15 @@ async function main() {
         activeKeys = [];
     });
 
+    // External reset event to recenter the camera
+    window.addEventListener('splat:reset_view', () => {
+        try {
+            viewMatrix = getViewMatrix(camera);
+        } catch (e) {
+            viewMatrix = defaultViewMatrix;
+        }
+    });
+
     window.addEventListener(
         "wheel",
         (e) => {
@@ -1009,8 +1051,8 @@ async function main() {
             if (e.shiftKey) {
                 inv = translate4(
                     inv,
-                    (e.deltaX * scale) / innerWidth,
-                    (e.deltaY * scale) / innerHeight,
+                    USER_SPEED_SCALE * (e.deltaX * scale) / innerWidth,
+                    USER_SPEED_SCALE * (e.deltaY * scale) / innerHeight,
                     0,
                 );
             } else if (e.ctrlKey || e.metaKey) {
@@ -1021,14 +1063,14 @@ async function main() {
                     inv,
                     0,
                     0,
-                    (-10 * (e.deltaY * scale)) / innerHeight,
+                    USER_SPEED_SCALE * (-10 * (e.deltaY * scale)) / innerHeight,
                 );
                 // inv[13] = preY;
             } else {
                 let d = 4;
                 inv = translate4(inv, 0, 0, d);
-                inv = rotate4(inv, -(e.deltaX * scale) / innerWidth, 0, 1, 0);
-                inv = rotate4(inv, (e.deltaY * scale) / innerHeight, 1, 0, 0);
+                inv = rotate4(inv, -USER_SPEED_SCALE * (e.deltaX * scale) / innerWidth, 0, 1, 0);
+                inv = rotate4(inv, USER_SPEED_SCALE * (e.deltaY * scale) / innerHeight, 1, 0, 0);
                 inv = translate4(inv, 0, 0, -d);
             }
 
@@ -1057,8 +1099,8 @@ async function main() {
         e.preventDefault();
         if (down == 1) {
             let inv = invert4(viewMatrix);
-            let dx = (5 * (e.clientX - startX)) / innerWidth;
-            let dy = (5 * (e.clientY - startY)) / innerHeight;
+            let dx = USER_SPEED_SCALE * (5 * (e.clientX - startX)) / innerWidth;
+            let dy = USER_SPEED_SCALE * (5 * (e.clientY - startY)) / innerHeight;
             let d = 4;
 
             inv = translate4(inv, 0, 0, d);
@@ -1078,9 +1120,9 @@ async function main() {
             // let preY = inv[13];
             inv = translate4(
                 inv,
-                (-10 * (e.clientX - startX)) / innerWidth,
+                USER_SPEED_SCALE * (-10 * (e.clientX - startX)) / innerWidth,
                 0,
-                (10 * (e.clientY - startY)) / innerHeight,
+                USER_SPEED_SCALE * (10 * (e.clientY - startY)) / innerHeight,
             );
             // inv[13] = preY;
             viewMatrix = invert4(inv);
@@ -1125,8 +1167,8 @@ async function main() {
             e.preventDefault();
             if (e.touches.length === 1 && down) {
                 let inv = invert4(viewMatrix);
-                let dx = (4 * (e.touches[0].clientX - startX)) / innerWidth;
-                let dy = (4 * (e.touches[0].clientY - startY)) / innerHeight;
+                let dx = USER_SPEED_SCALE * (4 * (e.touches[0].clientX - startX)) / innerWidth;
+                let dy = USER_SPEED_SCALE * (4 * (e.touches[0].clientY - startY)) / innerHeight;
 
                 let d = 4;
                 inv = translate4(inv, 0, 0, d);
@@ -1166,12 +1208,12 @@ async function main() {
                     2;
                 let inv = invert4(viewMatrix);
                 // inv = translate4(inv,  0, 0, d);
-                inv = rotate4(inv, dtheta, 0, 0, 1);
+                inv = rotate4(inv, USER_SPEED_SCALE * dtheta, 0, 0, 1);
 
-                inv = translate4(inv, -dx / innerWidth, -dy / innerHeight, 0);
+                inv = translate4(inv, -USER_SPEED_SCALE * dx / innerWidth, -USER_SPEED_SCALE * dy / innerHeight, 0);
 
                 // let preY = inv[13];
-                inv = translate4(inv, 0, 0, 3 * (1 - dscale));
+                inv = translate4(inv, 0, 0, USER_SPEED_SCALE * 3 * (1 - dscale));
                 // inv[13] = preY;
 
                 viewMatrix = invert4(inv);
@@ -1223,30 +1265,30 @@ async function main() {
 
         if (activeKeys.includes("ArrowUp")) {
             if (shiftKey) {
-                inv = translate4(inv, 0, -0.03, 0);
+                inv = translate4(inv, 0, -USER_SPEED_SCALE * 0.03, 0);
             } else {
-                inv = translate4(inv, 0, 0, 0.1);
+                inv = translate4(inv, 0, 0, USER_SPEED_SCALE * 0.1);
             }
         }
         if (activeKeys.includes("ArrowDown")) {
             if (shiftKey) {
-                inv = translate4(inv, 0, 0.03, 0);
+                inv = translate4(inv, 0, USER_SPEED_SCALE * 0.03, 0);
             } else {
-                inv = translate4(inv, 0, 0, -0.1);
+                inv = translate4(inv, 0, 0, -USER_SPEED_SCALE * 0.1);
             }
         }
         if (activeKeys.includes("ArrowLeft"))
-            inv = translate4(inv, -0.03, 0, 0);
+            inv = translate4(inv, -USER_SPEED_SCALE * 0.03, 0, 0);
         //
         if (activeKeys.includes("ArrowRight"))
-            inv = translate4(inv, 0.03, 0, 0);
+            inv = translate4(inv, USER_SPEED_SCALE * 0.03, 0, 0);
         // inv = rotate4(inv, 0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyA")) inv = rotate4(inv, -0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyD")) inv = rotate4(inv, 0.01, 0, 1, 0);
-        if (activeKeys.includes("KeyQ")) inv = rotate4(inv, 0.01, 0, 0, 1);
-        if (activeKeys.includes("KeyE")) inv = rotate4(inv, -0.01, 0, 0, 1);
-        if (activeKeys.includes("KeyW")) inv = rotate4(inv, 0.005, 1, 0, 0);
-        if (activeKeys.includes("KeyS")) inv = rotate4(inv, -0.005, 1, 0, 0);
+        if (activeKeys.includes("KeyA")) inv = rotate4(inv, -USER_SPEED_SCALE * 0.01, 0, 1, 0);
+        if (activeKeys.includes("KeyD")) inv = rotate4(inv, USER_SPEED_SCALE * 0.01, 0, 1, 0);
+        if (activeKeys.includes("KeyQ")) inv = rotate4(inv, USER_SPEED_SCALE * 0.01, 0, 0, 1);
+        if (activeKeys.includes("KeyE")) inv = rotate4(inv, -USER_SPEED_SCALE * 0.01, 0, 0, 1);
+        if (activeKeys.includes("KeyW")) inv = rotate4(inv, USER_SPEED_SCALE * 0.005, 1, 0, 0);
+        if (activeKeys.includes("KeyS")) inv = rotate4(inv, -USER_SPEED_SCALE * 0.005, 1, 0, 0);
 
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         let isJumping = activeKeys.includes("Space");
@@ -1385,6 +1427,39 @@ async function main() {
         let actualViewMatrix = invert4(inv2);
 
         const viewProj = multiply4(projectionMatrix, actualViewMatrix);
+        // Project all points to screen and position trackers
+        const mulMatVec = (m, v) => {
+            return [
+                m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3],
+                m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3],
+                m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3],
+                m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3],
+            ];
+        };
+        const positions = {};
+        for (const p of points) {
+            const el = ensureTracker(p.id)
+            const camP = mulMatVec(actualViewMatrix, [p.x, p.y, p.z, 1]);
+            const clip = mulMatVec(projectionMatrix, camP);
+            const w = clip[3] || 1;
+            const ndcX = clip[0] / w;
+            const ndcY = clip[1] / w;
+            const ndcZ = clip[2] / w;
+            const inside = ndcZ > -1 && ndcZ < 1 && Math.abs(ndcX) <= 1.2 && Math.abs(ndcY) <= 1.2;
+            if (inside) {
+                const sx = (ndcX * 0.5 + 0.5) * innerWidth;
+                const sy = (1 - (ndcY * 0.5 + 0.5)) * innerHeight;
+                el.style.left = `${sx}px`;
+                el.style.top = `${sy}px`;
+                el.style.display = '';
+                positions[p.id] = { x: sx, y: sy, visible: true };
+            } else {
+                el.style.display = 'none';
+                positions[p.id] = { x: undefined, y: undefined, visible: false };
+            }
+        }
+        // Publish the latest screen-space positions for points so UI can follow
+        window.dispatchEvent(new CustomEvent('splat:points_screen', { detail: { positions } }))
         worker.postMessage({ view: viewProj });
 
         const currentFps = 1000 / (now - lastFrame) || 0;
