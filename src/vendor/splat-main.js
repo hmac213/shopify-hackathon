@@ -747,11 +747,12 @@ async function main() {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
         carousel = false;
     } catch (err) {}
+    const baseOverride = (typeof window !== 'undefined' && window.__SPLAT_BASE) ? window.__SPLAT_BASE : null
     const override = (typeof window !== 'undefined' && window.__SPLAT_URL) ? window.__SPLAT_URL : null
-    const url = override ? new URL(override) : new URL(
-        params.get("url") || "train.splat",
-        "https://huggingface.co/cakewalk/splat-data/resolve/main/",
-    );
+    const baseFromQs = params.get('base')
+    const urlStr = params.get("url") || "train.splat"
+    const baseStr = baseOverride || baseFromQs || "https://huggingface.co/cakewalk/splat-data/resolve/main/"
+    const url = override ? new URL(override) : new URL(urlStr, baseStr);
     console.log('[splat] fetch url', url.toString())
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin
@@ -762,11 +763,7 @@ async function main() {
         throw new Error(req.status + " Unable to load " + req.url);
 
     const rowLength = 3 * 4 + 3 * 4 + 4 + 4;
-    if (!req.body || !req.body.getReader) {
-        throw new Error('[splat] Response body is not a readable stream')
-    }
-    const reader = req.body.getReader();
-    let splatData = new Uint8Array(req.headers.get("content-length"));
+    let splatData = new Uint8Array(Number(req.headers.get("content-length")) || 0);
 
     const downsample =
         splatData.length / rowLength > 500000 ? 1 : 1 / devicePixelRatio;
@@ -1491,6 +1488,40 @@ async function main() {
     };
 
     frame();
+
+    // Multi-splat merge: if config exists, fetch and merge into one buffer, translating per object
+    try {
+        const listMod = await import('../config/multiSplat.json');
+        const list = (listMod && (listMod.default || listMod)) || [];
+        if (Array.isArray(list) && list.length > 0) {
+            const makeAbs = (u) => new URL(u, baseStr).toString();
+            const urls = list.map((item) => makeAbs(item.url));
+            const responses = await Promise.all(urls.map((u) => fetch(u, { mode: 'cors', credentials: 'omit' })));
+            const buffers = await Promise.all(responses.map((r) => r.arrayBuffer()))
+            const u8s = buffers.map((b) => new Uint8Array(b));
+            const totalBytes = u8s.reduce((acc, u) => acc + u.byteLength, 0);
+            const merged = new ArrayBuffer(totalBytes);
+            const mergedU8 = new Uint8Array(merged);
+            const dv = new DataView(merged);
+            let offset = 0;
+            for (let i = 0; i < u8s.length; i++) {
+                const src = u8s[i];
+                const tx = Number(list[i].tx || list[i].x || 0);
+                const ty = Number(list[i].ty || list[i].y || 0);
+                const tz = Number(list[i].tz || list[i].z || 0);
+                mergedU8.set(src, offset);
+                for (let j = 0; j < src.byteLength; j += rowLength) {
+                    const base = offset + j;
+                    dv.setFloat32(base + 0, dv.getFloat32(base + 0, true) + tx, true);
+                    dv.setFloat32(base + 4, dv.getFloat32(base + 4, true) + ty, true);
+                    dv.setFloat32(base + 8, dv.getFloat32(base + 8, true) + tz, true);
+                }
+                offset += src.byteLength;
+            }
+            splatData = new Uint8Array(merged);
+            worker.postMessage({ buffer: merged, vertexCount: Math.floor(merged.byteLength / rowLength) }, [merged]);
+        }
+    } catch {}
 
     const isPly = (splatData) =>
         splatData[0] == 112 &&

@@ -1,4 +1,6 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
+import {Button} from '@shopify/shop-minis-react'
+import {SPLAT_PLY_URL, BASE_PLY_URL} from '../config/viewer'
 import {Button, ProductCard, useProductMedia, useShopCartActions, QuantitySelector, useShare, useDeeplink} from '@shopify/shop-minis-react'
 import {X as CloseIcon} from 'lucide-react'
 import {useLocation} from 'react-router'
@@ -134,17 +136,26 @@ export function Viewer() {
   useEffect(() => {
     // Ensure URL param is set so the vendored script picks it up
     try {
+      // Build an absolute URL using base+path when provided
+      let effectiveUrl = SPLAT_PLY_URL
+      try {
+        const base = BASE_PLY_URL && BASE_PLY_URL.length > 0 ? BASE_PLY_URL : undefined
+        effectiveUrl = base ? new URL(SPLAT_PLY_URL, base).toString() : new URL(SPLAT_PLY_URL).toString()
+      } catch {}
       const params = new URLSearchParams(window.location.search)
+
+      if (BASE_PLY_URL) params.set('base', BASE_PLY_URL)
       // Only set the scene URL if not already provided via deeplink/share
       if (!params.get('url') && SPLAT_PLY_URL) params.set('url', SPLAT_PLY_URL)
       const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`
-      console.info('Viewer: setting url param for splat', {SPLAT_PLY_URL, next})
+      console.info('Viewer: setting url param for splat', {SPLAT_PLY_URL, BASE_PLY_URL, next})
       history.replaceState({}, '', next)
+      ;(window as unknown as { __SPLAT_URL?: string; __SPLAT_BASE?: string }).__SPLAT_URL = effectiveUrl
+      ;(window as unknown as { __SPLAT_BASE?: string }).__SPLAT_BASE = BASE_PLY_URL
     } catch {}
 
     // Dynamically import the vendored module once the DOM is ready
     // Avoid running twice under HMR by setting a global flag
-    ;(window as unknown as { __SPLAT_URL?: string }).__SPLAT_URL = SPLAT_PLY_URL
     import('../vendor/splat-main.js')
       .catch((err) => {
         console.error('Failed to import splat viewer module', err)
