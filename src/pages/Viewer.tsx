@@ -399,8 +399,8 @@ export function Viewer() {
       <div className="absolute inset-x-4 [bottom:calc(env(safe-area-inset-bottom)+1rem)] z-40">
         <div className="grid grid-cols-2 gap-3">
           <Button size="lg" className="w-full" onClick={() => setShowPostDialog(true)}>
-            <SendHorizontal className="mr-2" />
-            Post
+          Post <SendHorizontal className="mr-2" />
+            
           </Button>
           <Button size="lg" variant="secondary" className="w-full" onClick={() => window.dispatchEvent(new CustomEvent('splat:reset_view'))}>Center</Button>
         </div>
