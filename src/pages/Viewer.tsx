@@ -109,6 +109,8 @@ function useInAppConsole() {
 }
 
 export function Viewer() {
+  console.log('[Viewer] Component mounting...')
+  
   const {entries, clear, copy} = useInAppConsole()
   const [showDebug, setShowDebug] = useState(false)
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
@@ -167,9 +169,24 @@ export function Viewer() {
       })
 
     return () => {
+      // Comprehensive cleanup when component unmounts
+      console.log('Viewer: cleaning up splat resources')
+      
+      // Call the splat script's cleanup function if available
+      if ((window as any).__splatMainCleanup) {
+        (window as any).__splatMainCleanup()
+        delete (window as any).__splatMainCleanup
+      }
+      
       // Best-effort cleanup of elements the script may have toggled
       const spinner = document.getElementById('spinner')
       if (spinner) spinner.style.display = 'none'
+      
+      const progress = document.getElementById('progress')
+      if (progress) progress.style.width = '0%'
+      
+      const message = document.getElementById('message')
+      if (message) message.innerText = ''
     }
   }, [])
 
@@ -296,9 +313,12 @@ export function Viewer() {
           sourceUrl={sourceUrl}
           onClose={() => { setSelectedPointId(null); setAnchor(null); setSourceUrl(null) }}
           onFullView={(productId) => {
+            console.log('[Viewer] Navigating to FullView with:', { productId, sourceUrl })
             setShowFullView(false)
             const params = new URLSearchParams({ url: sourceUrl || '' , productId: productId || '' })
-            navigate(`/full?${params.toString()}`, { replace: false })
+            const fullViewUrl = `/full?${params.toString()}`
+            console.log('[Viewer] FullView URL:', fullViewUrl)
+            navigate(fullViewUrl, { replace: false })
             setSelectedPointId(null)
             setAnchor(null)
           }}

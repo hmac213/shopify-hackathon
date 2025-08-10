@@ -1,9 +1,9 @@
 import {useLocation, useNavigate} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
 import {useVideoCapture} from '../hooks/useVideoCapture'
-import {VideoStreamer} from '../services/videoStreamer'
 import {Button} from '@shopify/shop-minis-react'
-import {useEffect, useMemo} from 'react'
+import {useEffect, useMemo, useRef} from 'react'
+import {onCapture, cancelCurrent} from '../capture'
 
 export function Capture() {
   const location = useLocation() as {state?: {category?: string; surprise?: boolean}}
@@ -13,25 +13,8 @@ export function Capture() {
 
   const {products} = useCategoryProducts({category, surprise, first: 24})
 
-  const streamer = useMemo(
-    () =>
-      new VideoStreamer(
-        'wss://example.com/instantsplat-stream',
-        {
-          sessionId: crypto.randomUUID(),
-          category: category ?? undefined,
-          surprise,
-          productIds: products.map(p => p.id),
-        },
-        {maxQueueSize: 100, batchSize: 1}
-      ),
-    [category, products, surprise]
-  )
-
-  useEffect(() => {
-    void streamer.open().catch(() => {})
-    return () => streamer.close(1000, 'navigate-away')
-  }, [streamer])
+  // Collect the first two captured frames as Files to submit
+  const capturedFilesRef = useRef<File[]>([])
 
   const {videoRef, isPreviewing, isCapturing, error, openPreview, close, startCapture, stopCapture, fps, setFps} = useVideoCapture({
     fps: 5,
@@ -41,20 +24,34 @@ export function Capture() {
     width: 720,
     height: 720,
     onFrame: frame => {
-      streamer.enqueueFrame(frame)
+      if (capturedFilesRef.current.length >= 2) return
+      const ext = 'webp'
+      const file = new File([frame.blob], `capture-${capturedFilesRef.current.length + 1}.${ext}` , { type: (frame.blob as any).type || 'image/webp' })
+      capturedFilesRef.current.push(file)
     },
   })
 
   useEffect(() => {
     void openPreview()
-    return () => close()
+    return () => {
+      close()
+      // cancel any in-flight submission when navigating away
+      cancelCurrent()
+    }
   }, [openPreview, close])
 
   const onToggleCapture = async () => {
     if (!isCapturing) {
+      // reset previous capture buffer
+      capturedFilesRef.current = []
       startCapture()
     } else {
       stopCapture()
+      // Fire-and-forget submission of up to first two frames; UI remains responsive
+      const filesToSubmit = capturedFilesRef.current.slice(0, 2)
+      if (filesToSubmit.length > 0) {
+        void onCapture(filesToSubmit)
+      }
       navigate('/loading', {state: {category, surprise, productIds: products.map(p => p.id)}})
     }
   }

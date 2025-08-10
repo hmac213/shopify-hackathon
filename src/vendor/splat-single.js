@@ -751,8 +751,8 @@ async function main() {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
         carousel = false;
     } catch (err) {}
-    const baseOverride = (typeof window !== 'undefined' && window.__SPLAT_BASE) ? window.__SPLAT_BASE : null
-    const override = (typeof window !== 'undefined' && window.__SPLAT_URL) ? window.__SPLAT_URL : null
+    const baseOverride = (typeof window !== 'undefined' && window.__SPLAT_SINGLE_BASE) ? window.__SPLAT_SINGLE_BASE : null
+    const override = (typeof window !== 'undefined' && window.__SPLAT_SINGLE_URL) ? window.__SPLAT_SINGLE_URL : null
     const baseFromQs = params.get('base')
     const urlStr = params.get("url") || "train.splat"
     const baseStr = baseOverride || baseFromQs || "https://huggingface.co/cakewalk/splat-data/resolve/main/"
@@ -825,7 +825,7 @@ async function main() {
             ),
         );
         // Store worker reference for cleanup
-        window.__splatWorker = worker;
+        window.__splatSingleWorker = worker;
     } catch (err) {
         console.warn('[splat] Worker creation failed; falling back to main-thread worker', err)
         class LocalWorker {
@@ -849,71 +849,49 @@ async function main() {
         }
         worker = new LocalWorker();
         // Store worker reference for cleanup
-        window.__splatWorker = worker;
+        window.__splatSingleWorker = worker;
     }
 
-    const canvas = document.getElementById("canvas");
+    let canvas = document.getElementById("canvas");
     if (!canvas) {
         throw new Error('[splat] #canvas not found')
     }
     
-    // Reset canvas to ensure clean state
-    canvas.width = canvas.width;
-    canvas.height = canvas.height;
+    // Ensure any existing WebGL context is properly cleaned up first
+    const existingGl = canvas.getContext('webgl2');
+    if (existingGl && !existingGl.isContextLost()) {
+        console.log('[splat] Cleaning up existing WebGL context...');
+        const ext = existingGl.getExtension('WEBGL_lose_context');
+        if (ext) {
+            ext.loseContext();
+        }
+    }
+    
+    // Create a completely fresh canvas element to ensure clean WebGL context
+    const parent = canvas.parentElement;
+    const newCanvas = document.createElement('canvas');
+    newCanvas.id = 'canvas';
+    newCanvas.className = canvas.className;
+    newCanvas.style.cssText = canvas.style.cssText;
+    
+    // Replace the old canvas with the new one
+    parent.replaceChild(newCanvas, canvas);
+    canvas = newCanvas;
+    
+    console.log('[splat] Created fresh canvas element for WebGL context');
+    
+    // Small delay to ensure DOM is fully updated
+    await new Promise(resolve => setTimeout(resolve, 10));
     
     const fps = document.getElementById("fps");
     const camid = document.getElementById("camid");
 
-    // Load points from multiSplat.json (hot-loadable) and create trackers for each
-    // Disable in single mode/full view so purple dots don't appear
-    const trackersEnabled = !forceSingle
+    // Point tracking disabled for single view
+    const trackersEnabled = false
     let points = []
     let pointMeta = new Map()
-    if (trackersEnabled) {
-        try {
-            const mod = await import('../config/multiSplat.json')
-            const list = (mod && (mod.default || mod)) || []
-            if (Array.isArray(list) && list.length > 0) {
-                const eps = 1e-6
-                points = list.map((item, idx) => ({
-                    id: item.id || `p${idx}`,
-                    x: Number(item.tx ?? item.x ?? 0),
-                    y: Number(item.ty ?? item.y ?? 0),
-                    z: Number(item.tz ?? item.z ?? 0),
-                })).filter(p => !(Math.abs(p.x) < eps && Math.abs(p.y) < eps && Math.abs(p.z) < eps))
-                // Build metadata map for quick lookup (e.g., source url)
-                pointMeta = new Map(list.map((item, idx) => [item.id || `p${idx}` , { url: item.url }]))
-            } else {
-                points = []
-            }
-        } catch (e) {
-            console.warn('[splat] unable to load multiSplat.json; no trackers will be shown')
-            points = []
-        }
-    }
     const trackers = new Map()
-    const ensureTracker = (id) => {
-        if (!trackersEnabled) return null
-        if (trackers.has(id)) return trackers.get(id)
-        const el = document.createElement('div')
-        el.dataset.id = id
-        Object.assign(el.style, {
-            position: 'absolute', width: '26px', height: '26px', borderRadius: '9999px',
-            border: '2px solid rgba(124,58,237,0.95)', background: 'rgba(124,58,237,0.18)',
-            boxShadow: '0 0 0 3px rgba(124,58,237,0.22), 0 0 14px rgba(124,58,237,0.35)',
-            left: '0px', top: '0px', transform: 'translate(-50%, -50%)', zIndex: 25, cursor: 'pointer', display: 'none'
-        })
-        el.addEventListener('click', () => {
-            const rect = el.getBoundingClientRect()
-            const x = rect.left + rect.width / 2
-            const y = rect.top + rect.height / 2
-            const meta = pointMeta.get(id) || {}
-            window.dispatchEvent(new CustomEvent('splat:tracker_click', { detail: { id, x, y, url: meta.url } }))
-        })
-        document.body.appendChild(el)
-        trackers.set(id, el)
-        return el
-    }
+    const ensureTracker = (id) => null
 
     let projectionMatrix;
 
@@ -956,7 +934,7 @@ async function main() {
 
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
         const log = gl.getProgramInfoLog(program);
-        console.error('Program linking failed:', log || 'No error log available');
+        console.error(log || 'Program linking failed');
     }
 
     gl.disable(gl.DEPTH_TEST); // Disable depth testing
@@ -1532,42 +1510,6 @@ async function main() {
         let actualViewMatrix = invert4(inv2);
 
         const viewProj = multiply4(projectionMatrix, actualViewMatrix);
-        // Project all points to screen and position trackers
-        const mulMatVec = (m, v) => {
-            return [
-                m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3],
-                m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3],
-                m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3],
-                m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3],
-            ];
-        };
-        const positions = {};
-        if (trackersEnabled && points.length > 0) {
-            for (const p of points) {
-                const el = ensureTracker(p.id)
-                if (!el) continue
-                const camP = mulMatVec(actualViewMatrix, [p.x, p.y, p.z, 1]);
-                const clip = mulMatVec(projectionMatrix, camP);
-                const w = clip[3] || 1;
-                const ndcX = clip[0] / w;
-                const ndcY = clip[1] / w;
-                const ndcZ = clip[2] / w;
-                const inside = ndcZ > -1 && ndcZ < 1 && Math.abs(ndcX) <= 1.2 && Math.abs(ndcY) <= 1.2;
-                if (inside) {
-                    const sx = (ndcX * 0.5 + 0.5) * innerWidth;
-                    const sy = (1 - (ndcY * 0.5 + 0.5)) * innerHeight;
-                    el.style.left = `${sx}px`;
-                    el.style.top = `${sy}px`;
-                    el.style.display = '';
-                    positions[p.id] = { x: sx, y: sy, visible: true };
-                } else if (el) {
-                    el.style.display = 'none';
-                    positions[p.id] = { x: undefined, y: undefined, visible: false };
-                }
-            }
-            // Publish the latest screen-space positions for points so UI can follow
-            window.dispatchEvent(new CustomEvent('splat:points_screen', { detail: { positions } }))
-        }
         worker.postMessage({ view: viewProj });
 
         const currentFps = 1000 / (now - lastFrame) || 0;
@@ -1600,7 +1542,7 @@ async function main() {
             camid.innerText = "";
         }
         lastFrame = now;
-        window.__splatAnimationId = requestAnimationFrame(frame);
+        window.__splatSingleAnimationId = requestAnimationFrame(frame);
     };
 
     frame();
@@ -1842,9 +1784,9 @@ let cleanupFunction = null;
 
 // Guard against multiple executions during HMR; ensure DOM exists first
 if (typeof window !== 'undefined') {
-    window.__splatLoaded = window.__splatLoaded || false;
-    if (!window.__splatLoaded) {
-        window.__splatLoaded = true;
+    window.__splatSingleLoaded = window.__splatSingleLoaded || false;
+    if (!window.__splatSingleLoaded) {
+        window.__splatSingleLoaded = true;
         const mainPromise = main().catch((err) => {
             const spinner = document.getElementById("spinner");
             if (spinner) spinner.style.display = "none";
@@ -1855,29 +1797,27 @@ if (typeof window !== 'undefined') {
         
         // Store cleanup function
         cleanupFunction = () => {
-            console.log('[splat-main] Cleaning up resources');
+            console.log('[splat-single] Cleaning up resources');
             // Stop animation frame
-            if (window.__splatAnimationId) {
-                cancelAnimationFrame(window.__splatAnimationId);
-                delete window.__splatAnimationId;
+            if (window.__splatSingleAnimationId) {
+                cancelAnimationFrame(window.__splatSingleAnimationId);
+                delete window.__splatSingleAnimationId;
             }
             // Terminate worker
-            if (window.__splatWorker) {
-                window.__splatWorker.terminate();
-                delete window.__splatWorker;
+            if (window.__splatSingleWorker) {
+                window.__splatSingleWorker.terminate();
+                delete window.__splatSingleWorker;
             }
-            // Remove tracker elements
-            const trackers = document.querySelectorAll('[data-id]');
-            trackers.forEach(el => el.remove());
             // Reset global flags
-            delete window.__splatLoaded;
-            delete window.__SPLAT_URL;
-            delete window.__SPLAT_BASE;
+            delete window.__splatSingleLoaded;
+            delete window.__SPLAT_SINGLE_URL;
+            delete window.__SPLAT_SINGLE_BASE;
+            delete window.__FORCE_SINGLE;
             
             // Note: WebGL context cleanup is handled by creating fresh canvas elements
             // No need to manually lose context since we replace the canvas entirely
         };
-        window.__splatMainCleanup = cleanupFunction;
+        window.__splatSingleCleanup = cleanupFunction;
     }
 }
 
