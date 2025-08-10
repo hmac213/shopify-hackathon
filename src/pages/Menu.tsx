@@ -40,26 +40,15 @@ export function Menu() {
 
   const surprisePool = useMemo(
     () => [
-      'Desk setup',
-      'Coffee bar',
-      'Home gym',
-      'Smart lights',
-      'Plants',
-      'Pet corner',
-      'Reading nook',
-      'Cozy bedroom',
-      'Gamer cave',
-      'Yoga zone',
-      'Kitchen pro',
-      'Scent bar',
-      'Wall art',
-      'Audio lounge',
-      'Cycling spot',
-      'Tea corner',
-      'Maker bench',
-      'Board games',
-      'Photography bay',
-      'Pet treats',
+      'Holiday Gifts',
+      'Trendy Home',
+      'Collectibles',
+      'Toys and Gifts',
+      'Urban Living',
+      'Pop Culture',
+      'Kids and Family',
+      'Lifestyle Boost',
+      'Happy Essentials'
     ],
     []
   )

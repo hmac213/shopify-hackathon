@@ -152,12 +152,12 @@ export function FullView() {
           <canvas id="canvas" className="absolute inset-0 w-full h-full" />
 
           {/* Minimal HUD required by vendor script */}
-          <div className="absolute left-0 right-0 top-0 z-30 p-2 flex items-center justify-between text-white text-xs">
+          <div className="hidden absolute left-0 right-0 top-0 z-30 p-2 flex items-center justify-between text-white text-xs">
             <div id="camid" className="px-2 py-1 rounded bg-black/40" />
             <div className="flex items-center gap-2">
               <div id="fps" className="px-2 py-1 rounded bg-black/40" />
               {cacheStatus && (
-                <div className="px-2 py-1 rounded bg-black/40 text-white text-xs flex items-center gap-1">
+                <div className="hidden px-2 py-1 rounded bg-black/40 text-white text-xs flex items-center gap-1">
                   {cacheStatus === 'checking' && <span className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />}
                   {cacheStatus === 'cached' && <span className="w-2 h-2 bg-green-400 rounded-full" />}
                   {cacheStatus === 'fetching' && <span className="w-2 h-2 bg-blue-400 rounded-full animate-spin" />}

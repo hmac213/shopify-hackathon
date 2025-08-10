@@ -2,7 +2,7 @@ import {useEffect, useMemo, useRef, useState} from 'react'
 import {SPLAT_PLY_URL, BASE_PLY_URL} from '../config/viewer'
 
 import {Button, ProductCard, useShopCartActions, QuantitySelector, useDeeplink, Input, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, useShare, useAsyncStorage} from '@shopify/shop-minis-react'
-import {X as CloseIcon} from 'lucide-react'
+import {X as CloseIcon, SendHorizontal} from 'lucide-react'
 import {useLocation, useNavigate} from 'react-router'
 import {useCategoryProducts} from '../hooks/useCategoryProducts'
 
@@ -368,7 +368,7 @@ export function Viewer() {
   return (
     <div ref={hostRef} className="min-h-dvh w-dvw relative bg-black">
       <canvas id="canvas" className="absolute inset-0 w-full h-full" />
-      <div className="absolute left-0 right-0 top-0 z-30 p-2 flex items-center justify-between text-white text-xs">
+      <div className="hidden absolute left-0 right-0 top-0 z-30 p-2 flex items-center justify-between text-white text-xs">
         <div id="camid" className="px-2 py-1 rounded bg-black/40" />
         <div id="fps" className="px-2 py-1 rounded bg-black/40" />
       </div>
@@ -380,7 +380,7 @@ export function Viewer() {
       </div>
       <div id="message" className="absolute inset-x-0 bottom-4 z-30 mx-4 text-center text-rose-300 text-xs" />
 
-      <div className="absolute top-4 left-4 z-40 flex gap-2">
+      <div className="hidden absolute top-4 left-4 z-40 flex gap-2">
         <Button variant="secondary" size="sm" onClick={() => setShowDebug(true)}>Debug</Button>
         {cacheStatus && (
           <div className="px-2 py-1 rounded bg-black/40 text-white text-xs flex items-center gap-1">
@@ -396,9 +396,12 @@ export function Viewer() {
         )}
       </div>
 
-      <div className="absolute inset-x-4 bottom-4 z-40">
+      <div className="absolute inset-x-4 [bottom:calc(env(safe-area-inset-bottom)+1rem)] z-40">
         <div className="grid grid-cols-2 gap-3">
-          <Button size="lg" className="w-full" onClick={() => setShowPostDialog(true)}>Post</Button>
+          <Button size="lg" className="w-full" onClick={() => setShowPostDialog(true)}>
+            <SendHorizontal className="mr-2" />
+            Post
+          </Button>
           <Button size="lg" variant="secondary" className="w-full" onClick={() => window.dispatchEvent(new CustomEvent('splat:reset_view'))}>Center</Button>
         </div>
       </div>
